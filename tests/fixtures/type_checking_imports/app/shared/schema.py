@@ -1,0 +1,2 @@
+class UserRecord:
+    pass

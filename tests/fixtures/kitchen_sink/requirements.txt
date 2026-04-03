@@ -1,0 +1,4 @@
+requests==2.32.3
+colorama==0.4.6
+idna==3.10
+urllib3==2.2.3

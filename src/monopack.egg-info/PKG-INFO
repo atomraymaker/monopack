@@ -1,0 +1,115 @@
+Metadata-Version: 2.4
+Name: monopack
+Version: 0.1.0
+Summary: Build focused Python Lambda function bundles from source imports.
+Author: monopack maintainers
+License-Expression: MIT
+Project-URL: Homepage, https://pypi.org/project/monopack/
+Project-URL: Repository, https://pypi.org/project/monopack/
+Project-URL: Issues, https://pypi.org/project/monopack/
+Keywords: aws-lambda,build,dependency-analysis,packaging,python
+Classifier: Development Status :: 3 - Alpha
+Classifier: Intended Audience :: Developers
+Classifier: Programming Language :: Python :: 3
+Classifier: Programming Language :: Python :: 3 :: Only
+Classifier: Programming Language :: Python :: 3.12
+Classifier: Topic :: Software Development :: Build Tools
+Requires-Python: >=3.12
+Description-Content-Type: text/markdown
+License-File: LICENSE
+Provides-Extra: dev
+Requires-Dist: build>=1.2.0; extra == "dev"
+Requires-Dist: twine>=5.0.0; extra == "dev"
+Dynamic: license-file
+
+# monopack
+
+`monopack` builds per-function Python Lambda bundles from a monolith-style repo.
+It traces imports from each function entrypoint, copies only reachable first-party code, installs only required pinned dependencies, and verifies import/runtime shape before packaging.
+
+## What monopack does
+
+- Builds one or many functions from `functions/*.py` into `build/<function_name>/`.
+- In `deploy` mode, writes deploy zip artifacts at `build/<function_name>.zip`.
+- In `test` mode, copies relevant tests and runs them in the build target (no zip output).
+- Uses pinned project `requirements.txt` (`name==version` lines only).
+- Supports optional auto-fix for missing-module verification failures (`--auto-fix`, opt-in).
+
+## Quickstart
+
+Project expectations:
+
+- `functions/` directory with function entrypoint files (`<name>.py`).
+- Project-level `requirements.txt` containing pinned `name==version` lines.
+- Optional `tests/` directory when using `--mode test`.
+
+Build one function in deploy mode:
+
+```bash
+PYTHONPATH=src python -m monopack users_get \
+  --functions-dir functions \
+  --build-dir build
+```
+
+Run confidence build in test mode:
+
+```bash
+PYTHONPATH=src python -m monopack users_get \
+  --functions-dir functions \
+  --build-dir /tmp/monopack-build \
+  --mode test
+```
+
+Build all functions discovered in `functions/*.py` (no target argument):
+
+```bash
+PYTHONPATH=src python -m monopack \
+  --functions-dir functions \
+  --build-dir build
+```
+
+## CLI usage
+
+Basic form:
+
+```bash
+PYTHONPATH=src python -m monopack [function_name] [options]
+```
+
+Key flags for real-project usage:
+
+- `--version`: prints the installed `monopack` version and exits.
+- `--mode deploy|test`: deploy builds runtime payload + zip; test builds payload + tests (no zip).
+- `--with-tests`: deploy mode only; runs relevant tests before finalizing deploy payload.
+- `--verify` / `--no-verify`: verifier is on by default.
+- `--auto-fix`: opt-in auto-repair loop for missing imports during verify.
+
+For full argument behavior and validation details, see `docs/cli.md`.
+
+## Constraints and limits
+
+- Function discovery is shallow: only `functions/*.py` (excluding names starting with `_`).
+- Function names must use letters, numbers, and underscores; target names cannot include `/`, `\\`, or `.`.
+- Build directory must differ from functions directory and cannot be nested inside it.
+- Requirements parser accepts only pinned `name==version` lines (comments and blanks allowed).
+- First-party graph traversal is limited to roots `functions`, `app`, and `lib` unless inline config adds modules.
+- Auto-fix only handles verifier `ModuleNotFoundError` flows and retries up to 3 times when enabled.
+
+## Recommended feedback loop for monolith split confidence
+
+1. Build the target in test mode with verification enabled:
+   `PYTHONPATH=src python -m monopack <function> --mode test --verify`.
+2. Inspect build output (`build/<function>/`) and generated `requirements.txt` for expected scope.
+3. Build deploy artifact once confidence is good:
+   `PYTHONPATH=src python -m monopack <function> --mode deploy`.
+4. Optionally gate deploy build with tests:
+   `PYTHONPATH=src python -m monopack <function> --mode deploy --with-tests`.
+5. Run repository tests to catch broader regressions:
+   `python -m unittest discover -s tests -v`.
+6. Tighten imports/tests/inline config and repeat until scoped build behavior is stable.
+
+## Deeper docs
+
+- CLI reference: `docs/cli.md`
+- PyPI publishing: `docs/publishing.md`
+- Fixture-driven confidence loop and matrix: `docs/testing-fixtures.md`
