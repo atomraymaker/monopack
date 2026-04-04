@@ -23,6 +23,7 @@ Exit codes:
 | `--with-tests` | flag | `False` | Deploy mode only. Runs relevant tests before finalizing deploy payload. |
 | `--verify` / `--no-verify` | mutually exclusive flags | verify on | Controls verifier script execution. |
 | `--auto-fix` | flag | `False` | Opt-in auto-fix loop for missing-module verifier failures. |
+| `--debug` | flag | `False` | Print aggregated build/import resolution diagnostics to stderr. |
 | `--sha-output` | comma list (`hex`,`b64`) | `hex` | Deploy-mode package digest output(s): `build/<function>.package.sha256` and/or `build/<function>.package.sha256.b64`. |
 
 ## Environment variables
@@ -35,6 +36,7 @@ CLI flags override env vars. Env vars override built-in defaults.
 - `MONOPACK_VERIFY` (`1/0`, `true/false`, `yes/no`)
 - `MONOPACK_AUTO_FIX` (`1/0`, `true/false`, `yes/no`)
 - `MONOPACK_WITH_TESTS` (`1/0`, `true/false`, `yes/no`)
+- `MONOPACK_DEBUG` (`1/0`, `true/false`, `yes/no`)
 
 ## Validation rules
 

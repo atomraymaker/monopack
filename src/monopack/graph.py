@@ -1,5 +1,6 @@
 """Dependency graph traversal for first-party bundle selection."""
 
+from dataclasses import dataclass
 from pathlib import Path
 
 from monopack.imports import classify_roots, extract_import_references_from_file, root_module
@@ -8,6 +9,14 @@ from monopack.module_resolver import (
     parent_init_files,
     resolve_module_to_file,
 )
+
+
+@dataclass(frozen=True)
+class FirstPartyAnalysisCache:
+    """Precomputed module/file and import relationships for first-party code."""
+
+    module_to_file: dict[str, Path]
+    imports_by_file: dict[Path, set[str]]
 
 
 def resolve_relative_import_base_module(
@@ -82,6 +91,7 @@ def collect_reachable_first_party_files(
     project_root: Path,
     first_party_roots: set[str],
     extra_modules: set[str] | None = None,
+    analysis_cache: FirstPartyAnalysisCache | None = None,
 ) -> tuple[set[Path], set[str]]:
     """Walk imports from the entrypoint and collect files plus third-party roots."""
 
@@ -89,6 +99,11 @@ def collect_reachable_first_party_files(
         raise ValueError(
             f"Entrypoint module {entrypoint_module!r} is not first-party."
         )
+
+    cache = analysis_cache or build_first_party_analysis_cache(
+        project_root=project_root,
+        first_party_roots=first_party_roots,
+    )
 
     selected_files: set[Path] = set()
     third_party_roots: set[str] = set()
@@ -98,7 +113,7 @@ def collect_reachable_first_party_files(
         if root_module(module) not in first_party_roots:
             continue
 
-        resolved = resolve_module_to_file(module, project_root)
+        resolved = resolve_module_to_file_with_cache(module, project_root, cache)
         if resolved is None:
             continue
 
@@ -111,21 +126,7 @@ def collect_reachable_first_party_files(
 
         selected_files.add(current_file)
 
-        imported_modules: set[str] = set()
-        current_module = module_name_from_path(current_file, project_root)
-        is_package = current_file.name == "__init__.py"
-        for ref in extract_import_references_from_file(current_file):
-            if ref.module is None and ref.level == 0:
-                continue
-
-            for candidate in imported_module_candidates(
-                current_module=current_module,
-                level=ref.level,
-                module=ref.module,
-                imported_names=ref.imported_names,
-                is_package=is_package,
-            ):
-                imported_modules.add(candidate)
+        imported_modules = imported_modules_from_file(current_file, project_root, cache)
 
         _, _, third_party = classify_roots(imported_modules, first_party_roots)
         third_party_roots.update(third_party)
@@ -134,7 +135,7 @@ def collect_reachable_first_party_files(
             if root_module(module) not in first_party_roots:
                 continue
 
-            resolved = resolve_module_to_file(module, project_root)
+            resolved = resolve_module_to_file_with_cache(module, project_root, cache)
             if resolved is None or resolved in selected_files:
                 continue
             to_visit.append(resolved)
@@ -144,3 +145,79 @@ def collect_reachable_first_party_files(
         files_to_copy.update(parent_init_files(module_path, project_root))
 
     return files_to_copy, third_party_roots
+
+
+def build_first_party_analysis_cache(
+    project_root: Path,
+    first_party_roots: set[str],
+) -> FirstPartyAnalysisCache:
+    """Precompute module resolution and imports for first-party files."""
+
+    all_files: list[Path] = []
+    for root in sorted(first_party_roots):
+        root_dir = project_root / root
+        if not root_dir.is_dir():
+            continue
+        all_files.extend(sorted(root_dir.rglob("*.py"), key=str))
+
+    module_to_file: dict[str, Path] = {}
+    imports_by_file: dict[Path, set[str]] = {}
+
+    for path in all_files:
+        module = module_name_from_path(path, project_root)
+        existing = module_to_file.get(module)
+        if existing is None or path.name != "__init__.py":
+            module_to_file[module] = path
+
+        imports_by_file[path] = imported_modules_for_path(path, project_root)
+
+    return FirstPartyAnalysisCache(
+        module_to_file=module_to_file,
+        imports_by_file=imports_by_file,
+    )
+
+
+def resolve_module_to_file_with_cache(
+    module: str,
+    project_root: Path,
+    cache: FirstPartyAnalysisCache,
+) -> Path | None:
+    """Resolve module path using cache first, then filesystem fallback."""
+
+    resolved = cache.module_to_file.get(module)
+    if resolved is not None:
+        return resolved
+    return resolve_module_to_file(module, project_root)
+
+
+def imported_modules_from_file(
+    current_file: Path,
+    project_root: Path,
+    cache: FirstPartyAnalysisCache,
+) -> set[str]:
+    """Get absolute imported module candidates for a source file."""
+
+    cached = cache.imports_by_file.get(current_file)
+    if cached is not None:
+        return set(cached)
+    return imported_modules_for_path(current_file, project_root)
+
+
+def imported_modules_for_path(current_file: Path, project_root: Path) -> set[str]:
+    imported_modules: set[str] = set()
+    current_module = module_name_from_path(current_file, project_root)
+    is_package = current_file.name == "__init__.py"
+    for ref in extract_import_references_from_file(current_file):
+        if ref.module is None and ref.level == 0:
+            continue
+
+        for candidate in imported_module_candidates(
+            current_module=current_module,
+            level=ref.level,
+            module=ref.module,
+            imported_names=ref.imported_names,
+            is_package=is_package,
+        ):
+            imported_modules.add(candidate)
+
+    return imported_modules

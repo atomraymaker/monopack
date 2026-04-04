@@ -12,8 +12,12 @@ from pathlib import Path
 import zipfile
 
 from monopack.discovery import resolve_entrypoint
-from monopack.graph import collect_reachable_first_party_files
-from monopack.imports import root_module
+from monopack.graph import (
+    FirstPartyAnalysisCache,
+    build_first_party_analysis_cache,
+    collect_reachable_first_party_files,
+)
+from monopack.imports import classify_roots, extract_imports_from_file, root_module
 from monopack.inline_config import InlineConfig, parse_inline_config, rewrite_inline_config
 from monopack.module_resolver import resolve_module_to_file
 from monopack.requirements import (
@@ -41,6 +45,10 @@ _MISSING_MODULE_RE = re.compile(
     r"ModuleNotFoundError:\s+No module named ['\"](?P<module>[^'\"]+)['\"]"
 )
 _DEPENDENCY_SYNC_CACHE: set[tuple[str, str, str]] = set()
+_FIRST_PARTY_ANALYSIS_CACHE: dict[
+    tuple[str, tuple[str, ...]],
+    FirstPartyAnalysisCache,
+] = {}
 
 
 class VerificationFailedError(RuntimeError):
@@ -58,6 +66,7 @@ def build_function(
     mode: str = "deploy",
     auto_fix: bool = False,
     with_tests: bool = False,
+    debug: bool = False,
     max_retries: int = 3,
     sha_outputs: set[str] | None = None,
 ) -> Path:
@@ -80,6 +89,7 @@ def build_function(
                 verify=verify,
                 mode=mode,
                 with_tests=with_tests,
+                debug=debug,
                 sha_outputs=normalized_sha_outputs,
             )
         except VerificationFailedError as exc:
@@ -117,6 +127,7 @@ def _build_function_once(
     verify: bool,
     mode: str,
     with_tests: bool,
+    debug: bool,
     sha_outputs: set[str],
 ) -> Path:
     """Execute a single build attempt without auto-fix retry handling."""
@@ -131,6 +142,7 @@ def _build_function_once(
         project_root=project_root,
         build_dir=build_dir,
     )
+    analysis_cache = get_first_party_analysis_cache(project_root, FIRST_PARTY_ROOTS)
 
     if build_target.exists():
         shutil.rmtree(build_target)
@@ -142,6 +154,7 @@ def _build_function_once(
         project_root=project_root,
         first_party_roots=FIRST_PARTY_ROOTS,
         extra_modules=inline_config.extra_modules,
+        analysis_cache=analysis_cache,
     )
 
     for source_file in sorted(
@@ -182,10 +195,21 @@ def _build_function_once(
         third_party_roots.update(test_third_party_roots)
 
     parsed_requirements = parse_pinned_requirements(lock_requirements_path)
+    requirements_path = project_root / "requirements.txt"
+    raise_for_local_roots_outside_first_party(
+        third_party_roots=third_party_roots,
+        parsed_requirements=parsed_requirements,
+        project_root=project_root,
+        requirements_path=requirements_path,
+        first_party_roots=FIRST_PARTY_ROOTS,
+    )
     resolved_distributions = resolve_third_party_distributions(
         third_party_roots=third_party_roots,
         parsed_requirements=parsed_requirements,
         package_map=package_map,
+        project_root=project_root,
+        requirements_path=requirements_path,
+        first_party_roots=FIRST_PARTY_ROOTS,
     )
     resolved_distributions.update(inline_config.extra_distributions)
     per_function_requirements = filter_requirements_for_distributions(
@@ -205,8 +229,6 @@ def _build_function_once(
             find_links=wheelhouse,
             no_index=True,
         )
-    else:
-        requirements_path.write_text("", encoding="utf-8")
 
     verifier_path = build_target / "_monopack_verify.py"
     write_verifier_script(verifier_path, function_name, selected_modules)
@@ -224,6 +246,24 @@ def _build_function_once(
             raise VerificationFailedError(str(exc)) from exc
         if not keep_tests_in_output:
             shutil.rmtree(copied_tests_dir)
+
+    if debug:
+        report = build_debug_report(
+            function_name=function_name,
+            mode=mode,
+            verify=verify,
+            run_tests=run_tests,
+            build_target=build_target,
+            selected_modules=selected_modules,
+            files_to_copy=files_to_copy,
+            copied_tests_dir=copied_tests_dir,
+            parsed_requirements=parsed_requirements,
+            package_map=package_map,
+            per_function_requirements=per_function_requirements,
+            first_party_roots=FIRST_PARTY_ROOTS,
+            project_root=project_root,
+        )
+        print(report, file=sys.stderr)
 
     if mode == "deploy":
         write_package_sha_files(
@@ -471,6 +511,9 @@ def resolve_third_party_distributions(
     third_party_roots: set[str],
     parsed_requirements: dict[str, str],
     package_map: dict[str, list[str]],
+    project_root: Path | None = None,
+    requirements_path: Path | None = None,
+    first_party_roots: set[str] | None = None,
 ) -> set[str]:
     """Resolve import roots to distribution names present in pinned requirements."""
 
@@ -500,13 +543,73 @@ def resolve_third_party_distributions(
 
     if unresolved:
         unresolved_display = ", ".join(unresolved)
+        roots_display = ", ".join(sorted(first_party_roots or set()))
+        project_root_display = str(project_root) if project_root is not None else "<project_root>"
+        requirements_display = (
+            str(requirements_path)
+            if requirements_path is not None
+            else "<project_root>/requirements.txt"
+        )
         raise KeyError(
-            "Could not resolve third-party imports to pinned distributions: "
-            f"{unresolved_display}. Add matching entries to requirements.txt "
-            "or use inline # extra_distributions overrides."
+            "Could not resolve imports to pinned third-party distributions: "
+            f"{unresolved_display}. Checked local modules under {project_root_display} "
+            f"and pinned requirements in {requirements_display}. "
+            "If these are third-party imports, add pinned 'name==version' entries. "
+            f"If these are local modules, place them under first-party roots ({roots_display})."
         )
 
     return resolved
+
+
+def _local_root_candidate_path(root: str, project_root: Path) -> Path | None:
+    module_file = project_root / f"{root}.py"
+    if module_file.exists():
+        return module_file
+
+    package_dir = project_root / root
+    if package_dir.is_dir():
+        package_init = package_dir / "__init__.py"
+        if package_init.exists():
+            return package_init
+        return package_dir
+
+    return None
+
+
+def raise_for_local_roots_outside_first_party(
+    third_party_roots: set[str],
+    parsed_requirements: dict[str, str],
+    project_root: Path,
+    requirements_path: Path,
+    first_party_roots: set[str],
+) -> None:
+    """Fail early when imports look local but sit outside supported roots."""
+
+    offenders: list[tuple[str, str]] = []
+    for root in sorted(third_party_roots):
+        normalized_root = _normalize_distribution_name(root)
+        if normalized_root in parsed_requirements:
+            continue
+
+        local_candidate = _local_root_candidate_path(root, project_root)
+        if local_candidate is None:
+            continue
+
+        offenders.append((root, local_candidate.relative_to(project_root).as_posix()))
+
+    if not offenders:
+        return
+
+    offenders_display = ", ".join(
+        f"{root} ({location})" for root, location in offenders
+    )
+    roots_display = ", ".join(sorted(first_party_roots))
+    raise RuntimeError(
+        "Imports look like local project code but are outside supported first-party roots: "
+        f"{offenders_display}. Checked project root {project_root} and pinned requirements at "
+        f"{requirements_path}. Move these modules under first-party roots ({roots_display}), "
+        "or package them as third-party dependencies with pinned 'name==version' entries."
+    )
 
 
 def sync_dependency_cache(project_root: Path, build_dir: Path) -> tuple[Path, Path, dict[str, list[str]]]:
@@ -577,6 +680,25 @@ def sync_dependency_cache(project_root: Path, build_dir: Path) -> tuple[Path, Pa
     return lock_path, wheelhouse, package_map
 
 
+def get_first_party_analysis_cache(
+    project_root: Path,
+    first_party_roots: set[str],
+) -> FirstPartyAnalysisCache:
+    """Return a reusable first-party import analysis cache for this process."""
+
+    key = (str(project_root.resolve()), tuple(sorted(first_party_roots)))
+    cached = _FIRST_PARTY_ANALYSIS_CACHE.get(key)
+    if cached is not None:
+        return cached
+
+    cache = build_first_party_analysis_cache(
+        project_root=project_root,
+        first_party_roots=first_party_roots,
+    )
+    _FIRST_PARTY_ANALYSIS_CACHE[key] = cache
+    return cache
+
+
 def _packages_distributions_from_python(python_executable: Path) -> dict[str, list[str]]:
     output = _run_checked(
         [
@@ -603,3 +725,97 @@ def _run_checked(command: list[str], failure_message: str) -> subprocess.Complet
         f"stdout:\n{completed.stdout}\n"
         f"stderr:\n{completed.stderr}"
     )
+
+
+def build_debug_report(
+    *,
+    function_name: str,
+    mode: str,
+    verify: bool,
+    run_tests: bool,
+    build_target: Path,
+    selected_modules: set[str],
+    files_to_copy: set[Path],
+    copied_tests_dir: Path | None,
+    parsed_requirements: dict[str, str],
+    package_map: dict[str, list[str]],
+    per_function_requirements: list[str],
+    first_party_roots: set[str],
+    project_root: Path,
+) -> str:
+    import_roots = collect_import_roots(files_to_copy)
+    if copied_tests_dir is not None and copied_tests_dir.exists():
+        import_roots.update(collect_import_roots(set(copied_tests_dir.rglob("*.py"))))
+
+    first_party_imports, stdlib_imports, third_party_imports = classify_roots(
+        {root for root in import_roots},
+        first_party_roots,
+    )
+
+    third_party_resolution_lines: list[str] = []
+    for root in sorted(third_party_imports):
+        normalized_root = _normalize_distribution_name(root)
+        if normalized_root in parsed_requirements:
+            third_party_resolution_lines.append(
+                f"- {root}: requirements ({parsed_requirements[normalized_root]})"
+            )
+            continue
+
+        local_candidate = _local_root_candidate_path(root, project_root)
+        if local_candidate is not None:
+            location = local_candidate.relative_to(project_root).as_posix()
+            third_party_resolution_lines.append(
+                f"- {root}: local-outside-first-party ({location})"
+            )
+            continue
+
+        candidates = package_map.get(root, []) or package_map.get(root.lower(), [])
+        matching = [
+            candidate
+            for candidate in candidates
+            if _normalize_distribution_name(candidate) in parsed_requirements
+        ]
+        if matching:
+            chosen = sorted(matching, key=str.lower)[0]
+            pinned = parsed_requirements[_normalize_distribution_name(chosen)]
+            third_party_resolution_lines.append(
+                f"- {root}: package-map ({chosen} -> {pinned})"
+            )
+            continue
+
+        third_party_resolution_lines.append("- {root}: unresolved".format(root=root))
+
+    tests_count = 0
+    if copied_tests_dir is not None and copied_tests_dir.exists():
+        tests_count = len([path for path in copied_tests_dir.rglob("test*.py")])
+
+    lines = [
+        f"[debug] Build report for '{function_name}'",
+        f"  mode={mode} verify={verify} run_tests={run_tests}",
+        f"  build_target={build_target}",
+        f"  copied_first_party_files={len(files_to_copy)} selected_modules={len(selected_modules)}",
+        "  import_roots="
+        f"first_party:{len(first_party_imports)} stdlib:{len(stdlib_imports)} third_party:{len(third_party_imports)}",
+        f"  copied_tests={tests_count}",
+        f"  selected_requirements={len(per_function_requirements)}",
+    ]
+
+    if per_function_requirements:
+        lines.append("  requirements:")
+        lines.extend(f"    - {requirement}" for requirement in per_function_requirements)
+
+    if third_party_resolution_lines:
+        lines.append("  third_party_resolution:")
+        lines.extend(f"    {line}" for line in third_party_resolution_lines)
+
+    return "\n".join(lines)
+
+
+def collect_import_roots(paths: set[Path]) -> set[str]:
+    roots: set[str] = set()
+    for path in sorted(paths, key=str):
+        if not path.is_file() or path.suffix != ".py":
+            continue
+        for module in extract_imports_from_file(path):
+            roots.add(root_module(module))
+    return roots

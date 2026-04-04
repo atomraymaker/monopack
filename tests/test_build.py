@@ -13,14 +13,17 @@ from monopack.build import (
     _pip_install_target,
     choose_auto_fix_target,
     create_build_artifact_zip,
+    get_first_party_analysis_cache,
     normalize_sha_outputs,
     package_content_digest,
     parse_missing_module_from_traceback,
     persist_inline_config_fix,
+    raise_for_local_roots_outside_first_party,
     resolve_third_party_distributions,
     write_package_sha_file,
     write_package_sha_files,
 )
+from monopack.graph import build_first_party_analysis_cache
 from monopack.inline_config import InlineConfig, parse_inline_config
 
 
@@ -101,13 +104,48 @@ ModuleNotFoundError: No module named 'app.hidden.runtime_dep'
     def test_resolve_third_party_distributions_raises_for_unmapped_import(self):
         with self.assertRaisesRegex(
             KeyError,
-            "Could not resolve third-party imports",
+            "Could not resolve imports to pinned third-party distributions",
         ):
             resolve_third_party_distributions(
                 third_party_roots={"imaginarypkg"},
                 parsed_requirements={"requests": "requests==2.32.3"},
                 package_map={},
+                project_root=Path("/tmp/project"),
+                requirements_path=Path("/tmp/project/requirements.txt"),
+                first_party_roots={"functions", "app", "lib"},
             )
+
+    def test_resolve_third_party_distributions_error_mentions_checked_paths(self):
+        with self.assertRaisesRegex(
+            KeyError,
+            r"Checked local modules under /tmp/project and pinned requirements in /tmp/project/requirements.txt",
+        ):
+            resolve_third_party_distributions(
+                third_party_roots={"imaginarypkg"},
+                parsed_requirements={"requests": "requests==2.32.3"},
+                package_map={},
+                project_root=Path("/tmp/project"),
+                requirements_path=Path("/tmp/project/requirements.txt"),
+                first_party_roots={"functions", "app", "lib"},
+            )
+
+    def test_raise_for_local_roots_outside_first_party_reports_local_paths(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            project_root = Path(tmpdir)
+            (project_root / "shared").mkdir()
+            (project_root / "shared" / "util.py").write_text("X = 1\n", encoding="utf-8")
+
+            with self.assertRaisesRegex(
+                RuntimeError,
+                r"outside supported first-party roots: shared \(shared\)",
+            ):
+                raise_for_local_roots_outside_first_party(
+                    third_party_roots={"shared"},
+                    parsed_requirements={},
+                    project_root=project_root,
+                    requirements_path=project_root / "requirements.txt",
+                    first_party_roots={"functions", "app", "lib"},
+                )
 
     def test_resolve_third_party_distributions_selects_deterministic_candidate(self):
         resolved = resolve_third_party_distributions(
@@ -337,6 +375,26 @@ ModuleNotFoundError: No module named 'app.hidden.runtime_dep'
             after = output_path.read_text(encoding="utf-8")
 
             self.assertNotEqual(before, after)
+
+    def test_get_first_party_analysis_cache_reuses_single_process_cache(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            project_root = Path(tmpdir)
+            entrypoint = project_root / "functions" / "users_get.py"
+            entrypoint.parent.mkdir(parents=True)
+            entrypoint.write_text("import app.users.service\n", encoding="utf-8")
+            service_file = project_root / "app" / "users" / "service.py"
+            service_file.parent.mkdir(parents=True)
+            service_file.write_text("VALUE = 1\n", encoding="utf-8")
+
+            with mock.patch(
+                "monopack.build.build_first_party_analysis_cache",
+                wraps=build_first_party_analysis_cache,
+            ) as build_cache:
+                first = get_first_party_analysis_cache(project_root, {"functions", "app", "lib"})
+                second = get_first_party_analysis_cache(project_root, {"functions", "app", "lib"})
+
+            self.assertIs(first, second)
+            self.assertEqual(build_cache.call_count, 1)
 
 
 if __name__ == "__main__":

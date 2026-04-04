@@ -31,7 +31,6 @@ class BuildIntegrationTests(unittest.TestCase):
                 build_target,
                 [
                     "functions/users_get.py",
-                    "requirements.txt",
                     "_monopack_verify.py",
                 ],
             )
@@ -43,7 +42,7 @@ class BuildIntegrationTests(unittest.TestCase):
             with zipfile.ZipFile(artifact_path) as archive:
                 names = archive.namelist()
                 self.assertIn("functions/users_get.py", names)
-                self.assertIn("requirements.txt", names)
+                self.assertNotIn("requirements.txt", names)
                 self.assertFalse(any(name.startswith("build/") for name in names))
 
     def test_build_function_writes_b64_package_sha_when_requested(self):
@@ -85,7 +84,6 @@ class BuildIntegrationTests(unittest.TestCase):
                 build_target,
                 [
                     "functions/users_get.py",
-                    "requirements.txt",
                     "_monopack_verify.py",
                 ],
             )
@@ -94,7 +92,7 @@ class BuildIntegrationTests(unittest.TestCase):
             with zipfile.ZipFile(artifact_path) as archive:
                 names = archive.namelist()
                 self.assertIn("functions/users_get.py", names)
-                self.assertIn("requirements.txt", names)
+                self.assertNotIn("requirements.txt", names)
                 self.assertFalse(any(name.startswith("build/") for name in names))
             self.assertEqual(stderr, "")
 
@@ -131,7 +129,6 @@ class BuildIntegrationTests(unittest.TestCase):
                 "app/users/service.py",
                 "app/shared/__init__.py",
                 "app/shared/auth.py",
-                "requirements.txt",
                 "_monopack_verify.py",
             ]
 
@@ -192,7 +189,6 @@ class BuildIntegrationTests(unittest.TestCase):
                 "app/shared/__init__.py",
                 "app/shared/auth.py",
                 "app/shared/tokens.py",
-                "requirements.txt",
                 "_monopack_verify.py",
             ]
 
@@ -230,7 +226,6 @@ class BuildIntegrationTests(unittest.TestCase):
                     "app/users/service.py",
                     "app/shared/auth.py",
                     "_monopack_verify.py",
-                    "requirements.txt",
                 ],
             )
 
@@ -251,14 +246,11 @@ class BuildIntegrationTests(unittest.TestCase):
                 [
                     "functions/users_get.py",
                     "app/users/service.py",
-                    "requirements.txt",
                     "_monopack_verify.py",
                 ],
             )
             assert_paths_not_exist(self, build_target, ["app/shared/schema.py"])
-            requirements_text = (build_target / "requirements.txt").read_text(encoding="utf-8")
-            self.assertNotIn("boto3", requirements_text)
-            self.assertEqual(requirements_text, "")
+            self.assertFalse((build_target / "requirements.txt").exists())
 
     def test_build_function_includes_transitive_third_party_requirements(self):
         with fixture_project("transitive_deps") as project_root:

@@ -79,6 +79,7 @@ Key flags for real-project usage:
 - `--with-tests`: deploy mode only; runs relevant tests before finalizing deploy payload.
 - `--verify` / `--no-verify`: verifier is on by default.
 - `--auto-fix`: opt-in auto-repair loop for missing imports during verify.
+- `--debug`: emit aggregated import/dependency resolution report to stderr.
 - `--sha-output`: comma-separated package digest outputs for deploy mode (`hex`, `b64`; default `hex`).
 
 Package digest output guidance:

@@ -3,10 +3,12 @@ import tempfile
 from pathlib import Path
 import sys
 import unittest
+from unittest import mock
 
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
+from monopack.graph import build_first_party_analysis_cache
 from monopack.graph import collect_reachable_first_party_files
 from monopack.graph import resolve_relative_import_base_module
 
@@ -184,6 +186,39 @@ class GraphTests(unittest.TestCase):
 
         self.assertIn("functions/users_get.py", relative_paths)
         self.assertIn("app/hidden/runtime_dep.py", relative_paths)
+
+    def test_collect_reachable_first_party_files_uses_precomputed_cache(self):
+        fixture_root = Path(__file__).resolve().parent / "fixtures" / "shared_code"
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            project_root = Path(tmpdir) / "project"
+            shutil.copytree(fixture_root, project_root)
+
+            cache = build_first_party_analysis_cache(
+                project_root=project_root,
+                first_party_roots={"functions", "app", "lib"},
+            )
+
+            with mock.patch(
+                "monopack.graph.extract_import_references_from_file",
+                side_effect=AssertionError("imports should come from cache"),
+            ):
+                files_to_copy, third_party_roots = collect_reachable_first_party_files(
+                    entrypoint_module="functions.users_get",
+                    entrypoint_file=project_root / "functions" / "users_get.py",
+                    project_root=project_root,
+                    first_party_roots={"functions", "app", "lib"},
+                    analysis_cache=cache,
+                )
+
+            relative_paths = {
+                path.relative_to(project_root).as_posix()
+                for path in files_to_copy
+            }
+
+        self.assertIn("functions/users_get.py", relative_paths)
+        self.assertIn("app/users/service.py", relative_paths)
+        self.assertEqual(third_party_roots, set())
 
 
 if __name__ == "__main__":

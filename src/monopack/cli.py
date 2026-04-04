@@ -80,6 +80,7 @@ def parse_args(argv=None):
     verify_group.add_argument("--no-verify", dest="verify", action="store_false")
 
     parser.add_argument("--auto-fix", dest="auto_fix", action="store_true")
+    parser.add_argument("--debug", action="store_true")
     parser.add_argument(
         "--sha-output",
         default="hex",
@@ -92,6 +93,7 @@ def parse_args(argv=None):
     parser.set_defaults(verify=_parse_env_bool("MONOPACK_VERIFY", True))
     parser.set_defaults(auto_fix=_parse_env_bool("MONOPACK_AUTO_FIX", False))
     parser.set_defaults(with_tests=_parse_env_bool("MONOPACK_WITH_TESTS", False))
+    parser.set_defaults(debug=_parse_env_bool("MONOPACK_DEBUG", False))
 
     return parser.parse_args(argv)
 
@@ -139,6 +141,7 @@ def main(argv=None):
                 mode=args.mode,
                 auto_fix=args.auto_fix,
                 with_tests=args.with_tests,
+                debug=args.debug,
                 sha_outputs=sha_outputs,
             )
             print(build_target)

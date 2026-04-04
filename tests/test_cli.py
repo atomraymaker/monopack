@@ -34,6 +34,7 @@ class CliTests(unittest.TestCase):
         self.assertFalse(args.auto_fix)
         self.assertEqual(args.mode, "deploy")
         self.assertFalse(args.with_tests)
+        self.assertFalse(args.debug)
         self.assertEqual(args.sha_output, "hex")
 
     def test_parse_args_custom_values(self):
@@ -50,6 +51,7 @@ class CliTests(unittest.TestCase):
                     "test",
                     "--with-tests",
                     "--auto-fix",
+                    "--debug",
                     "--sha-output",
                     "hex,b64",
                 ]
@@ -62,6 +64,7 @@ class CliTests(unittest.TestCase):
         self.assertTrue(args.auto_fix)
         self.assertEqual(args.mode, "test")
         self.assertTrue(args.with_tests)
+        self.assertTrue(args.debug)
         self.assertEqual(args.sha_output, "hex,b64")
 
     def test_parse_args_version_flag(self):
@@ -97,6 +100,7 @@ class CliTests(unittest.TestCase):
                 "MONOPACK_VERIFY": "no",
                 "MONOPACK_AUTO_FIX": "0",
                 "MONOPACK_WITH_TESTS": "yes",
+                "MONOPACK_DEBUG": "true",
             },
             clear=True,
         ):
@@ -108,6 +112,7 @@ class CliTests(unittest.TestCase):
         self.assertFalse(args.verify)
         self.assertFalse(args.auto_fix)
         self.assertTrue(args.with_tests)
+        self.assertTrue(args.debug)
 
     def test_parse_args_cli_flags_override_env_values(self):
         with mock.patch.dict(
@@ -608,6 +613,29 @@ class CliTests(unittest.TestCase):
 
         self.assertEqual(result, 0)
         self.assertEqual(build.call_args.kwargs["sha_outputs"], {"hex", "b64"})
+
+    def test_main_threads_debug_to_build_function(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            project_root = Path(tmpdir) / "project"
+            fixture_root = Path(__file__).resolve().parent / "fixtures" / "simple"
+            shutil.copytree(fixture_root, project_root)
+            functions_dir = project_root / "functions"
+            build_dir = project_root / "build"
+
+            with mock.patch("monopack.cli.build_function", return_value=build_dir / "users_get") as build:
+                result = cli.main(
+                    [
+                        "users_get",
+                        "--functions-dir",
+                        str(functions_dir),
+                        "--build-dir",
+                        str(build_dir),
+                        "--debug",
+                    ]
+                )
+
+        self.assertEqual(result, 0)
+        self.assertTrue(build.call_args.kwargs["debug"])
 
 
 if __name__ == "__main__":

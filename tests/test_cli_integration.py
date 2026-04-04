@@ -12,6 +12,26 @@ from helpers import assert_files_exist, assert_paths_not_exist, fixture_project,
 
 
 class CliIntegrationTests(unittest.TestCase):
+    def test_debug_mode_prints_aggregated_resolution_report(self):
+        with fixture_project("simple") as project_root:
+            code, stdout, stderr = run_cli_captured(
+                cli.main,
+                [
+                    "users_get",
+                    "--functions-dir",
+                    str(project_root / "functions"),
+                    "--build-dir",
+                    str(project_root / "build"),
+                    "--no-verify",
+                    "--debug",
+                ],
+            )
+
+            self.assertEqual(code, 0)
+            self.assertIn(str(project_root / "build" / "users_get"), stdout)
+            self.assertIn("[debug] Build report for 'users_get'", stderr)
+            self.assertIn("import_roots=", stderr)
+
     def test_kitchen_sink_users_test_mode_verify_runs_verifier_and_unittest(self):
         with fixture_project("kitchen_sink") as project_root:
             build_dir = project_root / "build"
@@ -113,7 +133,7 @@ class CliIntegrationTests(unittest.TestCase):
             self.assertEqual(code, 0)
             self.assertEqual(stderr, "")
             self.assertFalse((build_target / "tests").exists())
-            self.assertEqual((build_target / "requirements.txt").read_text(encoding="utf-8"), "")
+            self.assertFalse((build_target / "requirements.txt").exists())
             pip_install.assert_not_called()
 
     def test_auto_fix_first_party_runs_through_cli_and_rewrites_entrypoint(self):
