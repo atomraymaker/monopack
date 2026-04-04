@@ -1,12 +1,12 @@
 Metadata-Version: 2.4
 Name: monopack
-Version: 0.2.1
+Version: 0.2.2
 Summary: Build focused Python Lambda function bundles from source imports.
 Author: monopack maintainers
 License-Expression: MIT
-Project-URL: Homepage, https://pypi.org/project/monopack/
-Project-URL: Repository, https://pypi.org/project/monopack/
-Project-URL: Issues, https://pypi.org/project/monopack/
+Project-URL: Homepage, https://github.com/atomraymaker/monopack
+Project-URL: Repository, https://github.com/atomraymaker/monopack
+Project-URL: Issues, https://github.com/atomraymaker/monopack/issues
 Keywords: aws-lambda,build,dependency-analysis,packaging,python
 Classifier: Development Status :: 3 - Alpha
 Classifier: Intended Audience :: Developers
