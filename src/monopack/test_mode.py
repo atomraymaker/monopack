@@ -10,7 +10,6 @@ from monopack.module_resolver import module_name_from_path
 def module_names_from_files(
     files: set[Path],
     project_root: Path,
-    first_party_roots: set[str],
 ) -> set[str]:
     """Convert selected source files to importable module names."""
 
@@ -20,7 +19,7 @@ def module_names_from_files(
         if file_path.name == "__init__.py":
             continue
         relative = file_path.relative_to(project_root)
-        if not relative.parts or relative.parts[0] not in first_party_roots:
+        if not relative.parts or relative.parts[0] == "tests":
             continue
         modules.add(module_name_from_path(file_path, project_root))
 
@@ -105,7 +104,7 @@ def _required_parent_init_files(test_files: list[Path], source_tests: Path) -> l
 
 def collect_third_party_roots_from_tests(
     tests_dir: Path,
-    first_party_roots: set[str],
+    project_root: Path,
 ) -> set[str]:
     """Extract third-party import roots referenced by copied tests."""
 
@@ -113,7 +112,7 @@ def collect_third_party_roots_from_tests(
 
     for path in sorted(tests_dir.rglob("*.py")):
         modules = extract_imports_from_file(path)
-        _, _, third_party = classify_roots(modules, first_party_roots)
+        _, _, third_party = classify_roots(modules, project_root)
         third_party_roots.update(third_party)
 
     return third_party_roots

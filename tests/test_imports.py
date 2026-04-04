@@ -183,14 +183,19 @@ class ImportParsingTests(unittest.TestCase):
         self.assertEqual(root_module("urllib.parse"), "urllib")
 
     def test_classify_roots_splits_first_party_stdlib_and_third_party(self):
-        modules = {
-            "monopack.cli",
-            "json",
-            "pathlib",
-            "requests.sessions",
-        }
+        with tempfile.TemporaryDirectory() as tmpdir:
+            project_root = Path(tmpdir)
+            (project_root / "monopack").mkdir()
+            (project_root / "monopack" / "cli.py").write_text("VALUE = 1\n", encoding="utf-8")
 
-        first_party, stdlib, third_party = classify_roots(modules, {"monopack", "app"})
+            modules = {
+                "monopack.cli",
+                "json",
+                "pathlib",
+                "requests.sessions",
+            }
+
+            first_party, stdlib, third_party = classify_roots(modules, project_root)
 
         self.assertEqual(first_party, {"monopack"})
         self.assertEqual(stdlib, {"json", "pathlib"})

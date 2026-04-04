@@ -62,7 +62,6 @@ class GraphTests(unittest.TestCase):
                 entrypoint_module="functions.users_get",
                 entrypoint_file=project_root / "functions" / "users_get.py",
                 project_root=project_root,
-                first_party_roots={"functions", "app", "lib"},
             )
 
         relative_paths = {
@@ -106,7 +105,6 @@ class GraphTests(unittest.TestCase):
                 entrypoint_module="functions.users_get",
                 entrypoint_file=entrypoint,
                 project_root=project_root,
-                first_party_roots={"functions", "app", "lib"},
             )
 
             relative_paths = {
@@ -130,7 +128,6 @@ class GraphTests(unittest.TestCase):
                 entrypoint_module="functions.users_get",
                 entrypoint_file=project_root / "functions" / "users_get.py",
                 project_root=project_root,
-                first_party_roots={"functions", "app", "lib"},
             )
 
         relative_paths = {
@@ -175,7 +172,6 @@ class GraphTests(unittest.TestCase):
                 entrypoint_module="functions.users_get",
                 entrypoint_file=entrypoint,
                 project_root=project_root,
-                first_party_roots={"functions", "app", "lib"},
                 extra_modules={"app.hidden.runtime_dep", "app.missing.nope", "requests"},
             )
 
@@ -196,7 +192,6 @@ class GraphTests(unittest.TestCase):
 
             cache = build_first_party_analysis_cache(
                 project_root=project_root,
-                first_party_roots={"functions", "app", "lib"},
             )
 
             with mock.patch(
@@ -207,7 +202,6 @@ class GraphTests(unittest.TestCase):
                     entrypoint_module="functions.users_get",
                     entrypoint_file=project_root / "functions" / "users_get.py",
                     project_root=project_root,
-                    first_party_roots={"functions", "app", "lib"},
                     analysis_cache=cache,
                 )
 
@@ -218,6 +212,39 @@ class GraphTests(unittest.TestCase):
 
         self.assertIn("functions/users_get.py", relative_paths)
         self.assertIn("app/users/service.py", relative_paths)
+        self.assertEqual(third_party_roots, set())
+
+    def test_collect_reachable_first_party_files_includes_project_root_siblings(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            project_root = Path(tmpdir)
+            entrypoint = project_root / "functions" / "users_get.py"
+            shared_utils = project_root / "shared" / "utils.py"
+
+            entrypoint.parent.mkdir(parents=True)
+            shared_utils.parent.mkdir(parents=True)
+
+            entrypoint.write_text(
+                "from shared.utils import get_payload\n",
+                encoding="utf-8",
+            )
+            shared_utils.write_text(
+                "def get_payload():\n    return {'ok': True}\n",
+                encoding="utf-8",
+            )
+
+            files_to_copy, third_party_roots = collect_reachable_first_party_files(
+                entrypoint_module="functions.users_get",
+                entrypoint_file=entrypoint,
+                project_root=project_root,
+            )
+
+            relative_paths = {
+                path.relative_to(project_root).as_posix()
+                for path in files_to_copy
+            }
+
+        self.assertIn("functions/users_get.py", relative_paths)
+        self.assertIn("shared/utils.py", relative_paths)
         self.assertEqual(third_party_roots, set())
 
 

@@ -5,6 +5,8 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
+from monopack.module_resolver import resolve_module_to_file
+
 
 @dataclass(frozen=True)
 class ImportRef:
@@ -152,21 +154,25 @@ def root_module(name: str) -> str:
 
 def classify_roots(
     modules: set[str],
-    first_party_roots: set[str],
+    project_root: Path,
 ) -> tuple[set[str], set[str], set[str]]:
-    """Split modules into first-party, stdlib, and third-party root sets."""
+    """Split modules into local-first-party, stdlib, and third-party roots."""
 
     first_party: set[str] = set()
     stdlib: set[str] = set()
     third_party: set[str] = set()
 
+    unresolved_roots: set[str] = set()
+
     for module in modules:
         root = root_module(module)
-        if root in first_party_roots:
+        if resolve_module_to_file(module, project_root) is not None:
             first_party.add(root)
         elif root in sys.stdlib_module_names:
             stdlib.add(root)
         else:
-            third_party.add(root)
+            unresolved_roots.add(root)
+
+    third_party = unresolved_roots - first_party
 
     return first_party, stdlib, third_party

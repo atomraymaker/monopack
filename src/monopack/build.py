@@ -37,8 +37,6 @@ from monopack.verifier import (
     write_verifier_script,
 )
 
-
-FIRST_PARTY_ROOTS = {"functions", "app", "lib"}
 SUPPORTED_SHA_OUTPUTS = frozenset({"hex", "b64"})
 DEFAULT_SHA_OUTPUTS = frozenset({"hex"})
 DEPENDENCY_CACHE_DIRNAME = ".deps"
@@ -121,7 +119,6 @@ def build_function(
             target_kind, target_value = choose_auto_fix_target(
                 missing_module=missing_module,
                 project_root=project_root,
-                first_party_roots=FIRST_PARTY_ROOTS,
             )
             updated_config = persist_inline_config_fix(
                 entrypoint=entrypoint,
@@ -158,7 +155,6 @@ def _build_function_once(
     effective_shared_state = shared_state or prewarm_shared_build_state(
         project_root=project_root,
         build_dir=build_dir,
-        first_party_roots=FIRST_PARTY_ROOTS,
     )
     lock_requirements_path = effective_shared_state.lock_requirements_path
     wheelhouse = effective_shared_state.wheelhouse
@@ -173,7 +169,6 @@ def _build_function_once(
         entrypoint_module=f"functions.{function_name}",
         entrypoint_file=entrypoint,
         project_root=project_root,
-        first_party_roots=FIRST_PARTY_ROOTS,
         extra_modules=inline_config.extra_modules,
         analysis_cache=analysis_cache,
     )
@@ -190,7 +185,6 @@ def _build_function_once(
     selected_modules = module_names_from_files(
         files_to_copy,
         project_root,
-        FIRST_PARTY_ROOTS,
     )
 
     run_tests = mode == "test" or with_tests
@@ -211,26 +205,18 @@ def _build_function_once(
             )
         test_third_party_roots = collect_third_party_roots_from_tests(
             copied_tests_dir,
-            FIRST_PARTY_ROOTS,
+            project_root,
         )
         third_party_roots.update(test_third_party_roots)
 
     parsed_requirements = parse_pinned_requirements(lock_requirements_path)
     requirements_path = project_root / "requirements.txt"
-    raise_for_local_roots_outside_first_party(
-        third_party_roots=third_party_roots,
-        parsed_requirements=parsed_requirements,
-        project_root=project_root,
-        requirements_path=requirements_path,
-        first_party_roots=FIRST_PARTY_ROOTS,
-    )
     resolved_distributions = resolve_third_party_distributions(
         third_party_roots=third_party_roots,
         parsed_requirements=parsed_requirements,
         package_map=package_map,
         project_root=project_root,
         requirements_path=requirements_path,
-        first_party_roots=FIRST_PARTY_ROOTS,
     )
     resolved_distributions.update(inline_config.extra_distributions)
     per_function_requirements = filter_requirements_for_distributions(
@@ -281,7 +267,6 @@ def _build_function_once(
             parsed_requirements=parsed_requirements,
             package_map=package_map,
             per_function_requirements=per_function_requirements,
-            first_party_roots=FIRST_PARTY_ROOTS,
             project_root=project_root,
         )
         print(report, file=sys.stderr)
@@ -387,14 +372,7 @@ def write_package_sha_file(build_target: Path, output_path: Path) -> Path:
 
 def _included_in_package_hash(path: Path, build_target: Path) -> bool:
     relative = path.relative_to(build_target)
-    posix_path = relative.as_posix()
-    if posix_path in {"requirements.txt", "_monopack_verify.py"}:
-        return True
-
-    if not relative.parts:
-        return False
-
-    return relative.parts[0] in FIRST_PARTY_ROOTS | {"tests"}
+    return "__pycache__" not in relative.parts and path.suffix != ".pyc"
 
 
 def parse_missing_module_from_traceback(traceback_text: str) -> str | None:
@@ -409,13 +387,12 @@ def parse_missing_module_from_traceback(traceback_text: str) -> str | None:
 def choose_auto_fix_target(
     missing_module: str,
     project_root: Path,
-    first_party_roots: set[str],
     packages_to_distributions: dict[str, list[str]] | None = None,
 ) -> tuple[str, str]:
     """Choose whether auto-fix should add a module or a distribution override."""
 
     missing_root = root_module(missing_module)
-    if missing_root in first_party_roots or resolve_module_to_file(missing_module, project_root):
+    if resolve_module_to_file(missing_module, project_root):
         return "module", missing_module
 
     package_map = packages_to_distributions
@@ -534,7 +511,6 @@ def resolve_third_party_distributions(
     package_map: dict[str, list[str]],
     project_root: Path | None = None,
     requirements_path: Path | None = None,
-    first_party_roots: set[str] | None = None,
 ) -> set[str]:
     """Resolve import roots to distribution names present in pinned requirements."""
 
@@ -564,7 +540,6 @@ def resolve_third_party_distributions(
 
     if unresolved:
         unresolved_display = ", ".join(unresolved)
-        roots_display = ", ".join(sorted(first_party_roots or set()))
         project_root_display = str(project_root) if project_root is not None else "<project_root>"
         requirements_display = (
             str(requirements_path)
@@ -576,7 +551,7 @@ def resolve_third_party_distributions(
             f"{unresolved_display}. Checked local modules under {project_root_display} "
             f"and pinned requirements in {requirements_display}. "
             "If these are third-party imports, add pinned 'name==version' entries. "
-            f"If these are local modules, place them under first-party roots ({roots_display})."
+            "If these are local modules, ensure they resolve under the project root."
         )
 
     return resolved
@@ -595,42 +570,6 @@ def _local_root_candidate_path(root: str, project_root: Path) -> Path | None:
         return package_dir
 
     return None
-
-
-def raise_for_local_roots_outside_first_party(
-    third_party_roots: set[str],
-    parsed_requirements: dict[str, str],
-    project_root: Path,
-    requirements_path: Path,
-    first_party_roots: set[str],
-) -> None:
-    """Fail early when imports look local but sit outside supported roots."""
-
-    offenders: list[tuple[str, str]] = []
-    for root in sorted(third_party_roots):
-        normalized_root = _normalize_distribution_name(root)
-        if normalized_root in parsed_requirements:
-            continue
-
-        local_candidate = _local_root_candidate_path(root, project_root)
-        if local_candidate is None:
-            continue
-
-        offenders.append((root, local_candidate.relative_to(project_root).as_posix()))
-
-    if not offenders:
-        return
-
-    offenders_display = ", ".join(
-        f"{root} ({location})" for root, location in offenders
-    )
-    roots_display = ", ".join(sorted(first_party_roots))
-    raise RuntimeError(
-        "Imports look like local project code but are outside supported first-party roots: "
-        f"{offenders_display}. Checked project root {project_root} and pinned requirements at "
-        f"{requirements_path}. Move these modules under first-party roots ({roots_display}), "
-        "or package them as third-party dependencies with pinned 'name==version' entries."
-    )
 
 
 def sync_dependency_cache(project_root: Path, build_dir: Path) -> tuple[Path, Path, dict[str, list[str]]]:
@@ -705,7 +644,6 @@ def sync_dependency_cache(project_root: Path, build_dir: Path) -> tuple[Path, Pa
 def prewarm_shared_build_state(
     project_root: Path,
     build_dir: Path,
-    first_party_roots: set[str],
 ) -> SharedBuildState:
     """Compute reusable dependency and import analysis state once."""
 
@@ -713,7 +651,7 @@ def prewarm_shared_build_state(
         project_root=project_root,
         build_dir=build_dir,
     )
-    analysis_cache = get_first_party_analysis_cache(project_root, first_party_roots)
+    analysis_cache = get_first_party_analysis_cache(project_root)
     return SharedBuildState(
         lock_requirements_path=lock_requirements_path,
         wheelhouse=wheelhouse,
@@ -724,11 +662,10 @@ def prewarm_shared_build_state(
 
 def get_first_party_analysis_cache(
     project_root: Path,
-    first_party_roots: set[str],
 ) -> FirstPartyAnalysisCache:
     """Return a reusable first-party import analysis cache for this process."""
 
-    key = (str(project_root.resolve()), tuple(sorted(first_party_roots)))
+    key = (str(project_root.resolve()), tuple())
     with _FIRST_PARTY_ANALYSIS_CACHE_LOCK:
         cached = _FIRST_PARTY_ANALYSIS_CACHE.get(key)
         if cached is not None:
@@ -736,7 +673,6 @@ def get_first_party_analysis_cache(
 
         cache = build_first_party_analysis_cache(
             project_root=project_root,
-            first_party_roots=first_party_roots,
         )
         _FIRST_PARTY_ANALYSIS_CACHE[key] = cache
         return cache
@@ -783,7 +719,6 @@ def build_debug_report(
     parsed_requirements: dict[str, str],
     package_map: dict[str, list[str]],
     per_function_requirements: list[str],
-    first_party_roots: set[str],
     project_root: Path,
 ) -> str:
     import_roots = collect_import_roots(files_to_copy)
@@ -792,7 +727,7 @@ def build_debug_report(
 
     first_party_imports, stdlib_imports, third_party_imports = classify_roots(
         {root for root in import_roots},
-        first_party_roots,
+        project_root,
     )
 
     third_party_resolution_lines: list[str] = []
@@ -808,7 +743,7 @@ def build_debug_report(
         if local_candidate is not None:
             location = local_candidate.relative_to(project_root).as_posix()
             third_party_resolution_lines.append(
-                f"- {root}: local-outside-first-party ({location})"
+                f"- {root}: local-module ({location})"
             )
             continue
 

@@ -97,7 +97,7 @@ For full argument behavior and validation details, see `docs/cli.md`.
 - Function names must use letters, numbers, and underscores; target names cannot include `/`, `\\`, or `.`.
 - Build directory must differ from functions directory and cannot be nested inside it.
 - Requirements parser accepts only pinned `name==version` lines (comments and blanks allowed).
-- First-party graph traversal is limited to roots `functions`, `app`, and `lib` unless inline config adds modules.
+- First-party graph traversal follows imports that resolve to local modules under the same project root as `functions/` (excluding `tests/`).
 - Auto-fix only handles `ModuleNotFoundError` flows and retries up to 3 times when enabled.
 
 ## Recommended feedback loop for monolith split confidence

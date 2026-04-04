@@ -18,7 +18,6 @@ from monopack.build import (
     package_content_digest,
     parse_missing_module_from_traceback,
     persist_inline_config_fix,
-    raise_for_local_roots_outside_first_party,
     resolve_third_party_distributions,
     write_package_sha_file,
     write_package_sha_files,
@@ -55,7 +54,6 @@ ModuleNotFoundError: No module named 'app.hidden.runtime_dep'
             kind, value = choose_auto_fix_target(
                 missing_module="app.hidden",
                 project_root=project_root,
-                first_party_roots={"functions", "app", "lib"},
                 packages_to_distributions={},
             )
 
@@ -65,7 +63,6 @@ ModuleNotFoundError: No module named 'app.hidden.runtime_dep'
         kind, value = choose_auto_fix_target(
             missing_module="yaml.loader",
             project_root=Path("/tmp/nonexistent"),
-            first_party_roots={"functions", "app", "lib"},
             packages_to_distributions={"yaml": ["PyYAML"]},
         )
 
@@ -75,7 +72,6 @@ ModuleNotFoundError: No module named 'app.hidden.runtime_dep'
         kind, value = choose_auto_fix_target(
             missing_module="yaml.loader",
             project_root=Path("/tmp/nonexistent"),
-            first_party_roots={"functions", "app", "lib"},
             packages_to_distributions={
                 "yaml": ["zeta-yaml", "PyYAML", "alpha-yaml"],
             },
@@ -112,7 +108,6 @@ ModuleNotFoundError: No module named 'app.hidden.runtime_dep'
                 package_map={},
                 project_root=Path("/tmp/project"),
                 requirements_path=Path("/tmp/project/requirements.txt"),
-                first_party_roots={"functions", "app", "lib"},
             )
 
     def test_resolve_third_party_distributions_error_mentions_checked_paths(self):
@@ -126,26 +121,7 @@ ModuleNotFoundError: No module named 'app.hidden.runtime_dep'
                 package_map={},
                 project_root=Path("/tmp/project"),
                 requirements_path=Path("/tmp/project/requirements.txt"),
-                first_party_roots={"functions", "app", "lib"},
             )
-
-    def test_raise_for_local_roots_outside_first_party_reports_local_paths(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            project_root = Path(tmpdir)
-            (project_root / "shared").mkdir()
-            (project_root / "shared" / "util.py").write_text("X = 1\n", encoding="utf-8")
-
-            with self.assertRaisesRegex(
-                RuntimeError,
-                r"outside supported first-party roots: shared \(shared\)",
-            ):
-                raise_for_local_roots_outside_first_party(
-                    third_party_roots={"shared"},
-                    parsed_requirements={},
-                    project_root=project_root,
-                    requirements_path=project_root / "requirements.txt",
-                    first_party_roots={"functions", "app", "lib"},
-                )
 
     def test_resolve_third_party_distributions_selects_deterministic_candidate(self):
         resolved = resolve_third_party_distributions(
@@ -390,8 +366,8 @@ ModuleNotFoundError: No module named 'app.hidden.runtime_dep'
                 "monopack.build.build_first_party_analysis_cache",
                 wraps=build_first_party_analysis_cache,
             ) as build_cache:
-                first = get_first_party_analysis_cache(project_root, {"functions", "app", "lib"})
-                second = get_first_party_analysis_cache(project_root, {"functions", "app", "lib"})
+                first = get_first_party_analysis_cache(project_root)
+                second = get_first_party_analysis_cache(project_root)
 
             self.assertIs(first, second)
             self.assertEqual(build_cache.call_count, 1)

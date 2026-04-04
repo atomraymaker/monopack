@@ -3,7 +3,7 @@
 from dataclasses import dataclass
 from pathlib import Path
 
-from monopack.imports import classify_roots, extract_import_references_from_file, root_module
+from monopack.imports import classify_roots, extract_import_references_from_file
 from monopack.module_resolver import (
     module_name_from_path,
     parent_init_files,
@@ -89,20 +89,16 @@ def collect_reachable_first_party_files(
     entrypoint_module: str,
     entrypoint_file: Path,
     project_root: Path,
-    first_party_roots: set[str],
     extra_modules: set[str] | None = None,
     analysis_cache: FirstPartyAnalysisCache | None = None,
 ) -> tuple[set[Path], set[str]]:
     """Walk imports from the entrypoint and collect files plus third-party roots."""
 
-    if root_module(entrypoint_module) not in first_party_roots:
-        raise ValueError(
-            f"Entrypoint module {entrypoint_module!r} is not first-party."
-        )
+    if resolve_module_to_file(entrypoint_module, project_root) is None:
+        raise ValueError(f"Entrypoint module {entrypoint_module!r} does not resolve locally.")
 
     cache = analysis_cache or build_first_party_analysis_cache(
         project_root=project_root,
-        first_party_roots=first_party_roots,
     )
 
     selected_files: set[Path] = set()
@@ -110,11 +106,8 @@ def collect_reachable_first_party_files(
 
     to_visit: list[Path] = [entrypoint_file]
     for module in sorted(extra_modules or set()):
-        if root_module(module) not in first_party_roots:
-            continue
-
         resolved = resolve_module_to_file_with_cache(module, project_root, cache)
-        if resolved is None:
+        if resolved is None or not _is_runtime_project_file(resolved, project_root):
             continue
 
         to_visit.append(resolved)
@@ -128,15 +121,16 @@ def collect_reachable_first_party_files(
 
         imported_modules = imported_modules_from_file(current_file, project_root, cache)
 
-        _, _, third_party = classify_roots(imported_modules, first_party_roots)
+        _, _, third_party = classify_roots(imported_modules, project_root)
         third_party_roots.update(third_party)
 
         for module in sorted(imported_modules):
-            if root_module(module) not in first_party_roots:
-                continue
-
             resolved = resolve_module_to_file_with_cache(module, project_root, cache)
-            if resolved is None or resolved in selected_files:
+            if (
+                resolved is None
+                or resolved in selected_files
+                or not _is_runtime_project_file(resolved, project_root)
+            ):
                 continue
             to_visit.append(resolved)
 
@@ -149,16 +143,17 @@ def collect_reachable_first_party_files(
 
 def build_first_party_analysis_cache(
     project_root: Path,
-    first_party_roots: set[str],
 ) -> FirstPartyAnalysisCache:
     """Precompute module resolution and imports for first-party files."""
 
-    all_files: list[Path] = []
-    for root in sorted(first_party_roots):
-        root_dir = project_root / root
-        if not root_dir.is_dir():
-            continue
-        all_files.extend(sorted(root_dir.rglob("*.py"), key=str))
+    all_files = sorted(
+        [
+            path
+            for path in project_root.rglob("*.py")
+            if _is_runtime_project_file(path, project_root)
+        ],
+        key=str,
+    )
 
     module_to_file: dict[str, Path] = {}
     imports_by_file: dict[Path, set[str]] = {}
@@ -221,3 +216,23 @@ def imported_modules_for_path(current_file: Path, project_root: Path) -> set[str
             imported_modules.add(candidate)
 
     return imported_modules
+
+
+def _is_runtime_project_file(path: Path, project_root: Path) -> bool:
+    try:
+        relative = path.relative_to(project_root)
+    except ValueError:
+        return False
+
+    if path.suffix != ".py" or not relative.parts:
+        return False
+
+    excluded_roots = {"tests", "build", "dist", "venv", ".venv"}
+    if relative.parts[0] in excluded_roots:
+        return False
+
+    for part in relative.parts:
+        if part.startswith(".") or part == "__pycache__":
+            return False
+
+    return True

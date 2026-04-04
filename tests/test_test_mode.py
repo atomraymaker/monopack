@@ -58,7 +58,7 @@ class TestModeHelpersTests(unittest.TestCase):
             fixture_root / "tests" / "users" / "test_users_get.py",
         }
 
-        names = module_names_from_files(files, fixture_root, {"functions", "app", "lib"})
+        names = module_names_from_files(files, fixture_root)
 
         self.assertEqual(names, {"functions.users_get", "app.users.service"})
 
@@ -94,7 +94,7 @@ class TestModeHelpersTests(unittest.TestCase):
 
             roots = collect_third_party_roots_from_tests(
                 project_root / "tests",
-                {"functions", "app", "lib"},
+                project_root,
             )
 
         self.assertEqual(roots, {"colorama"})

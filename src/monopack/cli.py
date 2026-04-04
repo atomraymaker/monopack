@@ -7,7 +7,7 @@ from contextlib import redirect_stderr
 import sys
 
 from monopack import __version__
-from monopack.build import FIRST_PARTY_ROOTS, build_function, prewarm_shared_build_state
+from monopack.build import build_function, prewarm_shared_build_state
 from monopack.discovery import discover_functions
 from monopack.validation import (
     validate_cli_mode_options,
@@ -206,7 +206,6 @@ def main(argv=None):
             shared_state = prewarm_shared_build_state(
                 project_root=project_root,
                 build_dir=build_dir,
-                first_party_roots=FIRST_PARTY_ROOTS,
             )
 
         if jobs <= 1:

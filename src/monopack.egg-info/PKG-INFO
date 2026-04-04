@@ -1,6 +1,6 @@
 Metadata-Version: 2.4
 Name: monopack
-Version: 0.1.0
+Version: 0.2.1
 Summary: Build focused Python Lambda function bundles from source imports.
 Author: monopack maintainers
 License-Expression: MIT
@@ -25,12 +25,32 @@ Dynamic: license-file
 # monopack
 
 `monopack` builds per-function Python Lambda bundles from a monolith-style repo.
-It traces imports from each function entrypoint, copies only reachable first-party code, installs only required pinned dependencies, and verifies import/runtime shape before packaging.
+
+## Background
+
+Go works well for multi-Lambda projects because one codebase can expose multiple `cmd` entrypoints and build each function with only what it needs.
+
+Python workflows are usually less ergonomic at that scale:
+
+- AWS SAM and Serverless framework commonly package one Python artifact per project.
+- Per-function folder layouts can make shared code awkward.
+- Workarounds such as local packages, symlinks, or copied shared folders often add maintenance overhead.
+
+`monopack` is intended to make Python feel closer to that Go workflow without changing your project into N separate services. It takes a larger codebase and produces per-function zip artifacts by:
+
+- tracing imports from each function entrypoint,
+- copying reachable first-party files,
+- deriving a minimal pinned `requirements.txt` subset for third-party imports,
+- installing only that dependency subset into the build target,
+- and running optional verification/tests to increase confidence that each split artifact works in isolation.
+
+It is intentionally conservative: this is import-based trimming with guardrails, not full tree-shaking or whole-program optimization. It aims to cover common Python import patterns used in real projects, while keeping behavior explicit and testable.
 
 ## What monopack does
 
 - Builds one or many functions from `functions/*.py` into `build/<function_name>/`.
 - In `deploy` mode, writes deploy zip artifacts at `build/<function_name>.zip`.
+- In `deploy` mode, writes package digest helper file(s) (`build/<function_name>.package.sha256` by default).
 - In `test` mode, copies relevant tests and runs them in the build target (no zip output).
 - Uses pinned project `requirements.txt` (`name==version` lines only).
 - Supports optional auto-fix for missing-module verification failures (`--auto-fix`, opt-in).
@@ -83,6 +103,15 @@ Key flags for real-project usage:
 - `--with-tests`: deploy mode only; runs relevant tests before finalizing deploy payload.
 - `--verify` / `--no-verify`: verifier is on by default.
 - `--auto-fix`: opt-in auto-repair loop for missing imports during verify.
+- `--debug`: emit aggregated import/dependency resolution report to stderr.
+- `--jobs`: parallel workers for multi-function builds (`auto` default).
+- `--sha-output`: comma-separated package digest outputs for deploy mode (`hex`, `b64`; default `hex`).
+
+Package digest output guidance:
+
+- `hex` (`.package.sha256`): general CI/script diffing and human-readable checks.
+- `b64` (`.package.sha256.b64`): Terraform-style workflows that prefer base64 digest values.
+- Use both when needed: `--sha-output hex,b64`.
 
 For full argument behavior and validation details, see `docs/cli.md`.
 
@@ -92,8 +121,8 @@ For full argument behavior and validation details, see `docs/cli.md`.
 - Function names must use letters, numbers, and underscores; target names cannot include `/`, `\\`, or `.`.
 - Build directory must differ from functions directory and cannot be nested inside it.
 - Requirements parser accepts only pinned `name==version` lines (comments and blanks allowed).
-- First-party graph traversal is limited to roots `functions`, `app`, and `lib` unless inline config adds modules.
-- Auto-fix only handles verifier `ModuleNotFoundError` flows and retries up to 3 times when enabled.
+- First-party graph traversal follows imports that resolve to local modules under the same project root as `functions/` (excluding `tests/`).
+- Auto-fix only handles `ModuleNotFoundError` flows and retries up to 3 times when enabled.
 
 ## Recommended feedback loop for monolith split confidence
 
@@ -113,3 +142,5 @@ For full argument behavior and validation details, see `docs/cli.md`.
 - CLI reference: `docs/cli.md`
 - PyPI publishing: `docs/publishing.md`
 - Fixture-driven confidence loop and matrix: `docs/testing-fixtures.md`
+
+For Terraform `source_code_hash` usage with generated package digests, see `docs/cli.md`.

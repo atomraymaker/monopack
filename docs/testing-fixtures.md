@@ -35,7 +35,7 @@
   - target names must be bare identifiers (no `/`, `\\`, or `.`),
   - discovered/target names allow only letters, digits, and underscores.
 - Function discovery is shallow (`functions/*.py` only), excluding files prefixed with `_`.
-- Builder scope is limited to first-party roots `functions`, `app`, and `lib` plus optional `extra_modules` from inline config.
+- Builder scope follows imports that resolve to local modules under the same project root as `functions/` (excluding `tests/`) plus optional `extra_modules` from inline config.
 - Requirements handling accepts only pinned `name==version` lines (comments/blank lines allowed); unsupported forms (`>=`, extras, `-r`, VCS URLs, editable installs) raise errors.
 - Verification behavior:
   - verifier imports selected modules + `functions.<name>` and asserts `lambda_handler` exists,
