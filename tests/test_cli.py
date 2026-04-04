@@ -35,6 +35,7 @@ class CliTests(unittest.TestCase):
         self.assertEqual(args.mode, "deploy")
         self.assertFalse(args.with_tests)
         self.assertFalse(args.debug)
+        self.assertEqual(args.jobs, "auto")
         self.assertEqual(args.sha_output, "hex")
 
     def test_parse_args_custom_values(self):
@@ -52,6 +53,8 @@ class CliTests(unittest.TestCase):
                     "--with-tests",
                     "--auto-fix",
                     "--debug",
+                    "--jobs",
+                    "3",
                     "--sha-output",
                     "hex,b64",
                 ]
@@ -65,6 +68,7 @@ class CliTests(unittest.TestCase):
         self.assertEqual(args.mode, "test")
         self.assertTrue(args.with_tests)
         self.assertTrue(args.debug)
+        self.assertEqual(args.jobs, "3")
         self.assertEqual(args.sha_output, "hex,b64")
 
     def test_parse_args_version_flag(self):
@@ -76,12 +80,22 @@ class CliTests(unittest.TestCase):
                 cli.parse_args(["--version"])
 
         self.assertEqual(exc.exception.code, 0)
-        self.assertEqual(stdout.getvalue().strip(), "monopack 0.1.0")
+        self.assertEqual(stdout.getvalue().strip(), "monopack 0.2.0")
         self.assertEqual(stderr.getvalue(), "")
 
     def test_parse_sha_output_accepts_comma_separated_values(self):
         self.assertEqual(cli._parse_sha_output("hex,b64"), {"hex", "b64"})
         self.assertEqual(cli._parse_sha_output(" b64 "), {"b64"})
+
+    def test_parse_jobs_accepts_auto_and_positive_integer(self):
+        self.assertEqual(cli._parse_jobs("auto"), "auto")
+        self.assertEqual(cli._parse_jobs("4"), 4)
+
+    def test_parse_jobs_rejects_invalid_values(self):
+        with self.assertRaisesRegex(ValueError, "Invalid --jobs value"):
+            cli._parse_jobs("0")
+        with self.assertRaisesRegex(ValueError, "Invalid --jobs value"):
+            cli._parse_jobs("many")
 
     def test_parse_sha_output_rejects_invalid_values(self):
         with self.assertRaisesRegex(ValueError, "Unsupported --sha-output values"):
@@ -101,6 +115,7 @@ class CliTests(unittest.TestCase):
                 "MONOPACK_AUTO_FIX": "0",
                 "MONOPACK_WITH_TESTS": "yes",
                 "MONOPACK_DEBUG": "true",
+                "MONOPACK_JOBS": "5",
             },
             clear=True,
         ):
@@ -113,6 +128,7 @@ class CliTests(unittest.TestCase):
         self.assertFalse(args.auto_fix)
         self.assertTrue(args.with_tests)
         self.assertTrue(args.debug)
+        self.assertEqual(args.jobs, "5")
 
     def test_parse_args_cli_flags_override_env_values(self):
         with mock.patch.dict(
@@ -124,6 +140,7 @@ class CliTests(unittest.TestCase):
                 "MONOPACK_VERIFY": "false",
                 "MONOPACK_AUTO_FIX": "false",
                 "MONOPACK_WITH_TESTS": "true",
+                "MONOPACK_JOBS": "5",
             },
             clear=True,
         ):
@@ -137,6 +154,8 @@ class CliTests(unittest.TestCase):
                     "deploy",
                     "--verify",
                     "--auto-fix",
+                    "--jobs",
+                    "2",
                 ]
             )
 
@@ -146,6 +165,7 @@ class CliTests(unittest.TestCase):
         self.assertTrue(args.verify)
         self.assertTrue(args.auto_fix)
         self.assertTrue(args.with_tests)
+        self.assertEqual(args.jobs, "2")
 
     def test_main_returns_error_for_invalid_env_bool(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -636,6 +656,77 @@ class CliTests(unittest.TestCase):
 
         self.assertEqual(result, 0)
         self.assertTrue(build.call_args.kwargs["debug"])
+
+    def test_main_builds_all_functions_with_jobs_and_deterministic_output(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            project_root = Path(tmpdir) / "project"
+            functions_dir = project_root / "functions"
+            build_dir = project_root / "build"
+            functions_dir.mkdir(parents=True)
+            (functions_dir / "users_get.py").write_text("", encoding="utf-8")
+            (functions_dir / "billing_charge.py").write_text("", encoding="utf-8")
+            (project_root / "requirements.txt").write_text("", encoding="utf-8")
+
+            sentinel_shared_state = object()
+
+            def _fake_build(function_name, **kwargs):
+                self.assertIs(kwargs["shared_state"], sentinel_shared_state)
+                return build_dir / function_name
+
+            stdout = io.StringIO()
+            stderr = io.StringIO()
+            with mock.patch(
+                "monopack.cli.prewarm_shared_build_state",
+                return_value=sentinel_shared_state,
+            ) as prewarm:
+                with mock.patch("monopack.cli.build_function", side_effect=_fake_build) as build:
+                    with redirect_stdout(stdout), redirect_stderr(stderr):
+                        result = cli.main(
+                            [
+                                "--functions-dir",
+                                str(functions_dir),
+                                "--build-dir",
+                                str(build_dir),
+                                "--jobs",
+                                "2",
+                            ]
+                        )
+
+        self.assertEqual(result, 0)
+        self.assertEqual(stderr.getvalue(), "")
+        self.assertEqual(
+            stdout.getvalue().splitlines(),
+            [
+                str(build_dir / "billing_charge"),
+                str(build_dir / "users_get"),
+            ],
+        )
+        prewarm.assert_called_once()
+        self.assertEqual(build.call_count, 2)
+
+    def test_resolve_jobs_uses_auto_default_based_on_function_count(self):
+        with mock.patch("os.cpu_count", return_value=12):
+            jobs = cli._resolve_jobs(
+                "auto",
+                function_count=10,
+                auto_fix=False,
+                has_target=False,
+            )
+
+        self.assertEqual(jobs, 8)
+
+    def test_resolve_jobs_forces_serial_with_auto_fix(self):
+        stderr = io.StringIO()
+        with redirect_stderr(stderr):
+            jobs = cli._resolve_jobs(
+                "6",
+                function_count=6,
+                auto_fix=True,
+                has_target=False,
+            )
+
+        self.assertEqual(jobs, 1)
+        self.assertIn("forcing --jobs=1", stderr.getvalue())
 
 
 if __name__ == "__main__":

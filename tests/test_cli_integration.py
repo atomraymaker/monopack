@@ -281,6 +281,38 @@ class CliIntegrationTests(unittest.TestCase):
                 self.assertTrue((build_dir / f"{function_name}.package.sha256").is_file())
                 self.assertTrue((build_dir / f"{function_name}.package.sha256.b64").is_file())
 
+    def test_build_all_functions_with_jobs_preserves_output_order(self):
+        with fixture_project("kitchen_sink") as project_root:
+            build_dir = project_root / "build"
+
+            with mock.patch("monopack.build._pip_install_target"):
+                code, stdout, stderr = run_cli_captured(
+                    cli.main,
+                    [
+                        "--functions-dir",
+                        str(project_root / "functions"),
+                        "--build-dir",
+                        str(build_dir),
+                        "--mode",
+                        "deploy",
+                        "--no-verify",
+                        "--jobs",
+                        "2",
+                    ],
+                )
+
+            self.assertEqual(code, 0)
+            self.assertEqual(stderr, "")
+            lines = [line for line in stdout.strip().splitlines() if line]
+            self.assertEqual(
+                lines,
+                [
+                    str(build_dir / "billing_charge"),
+                    str(build_dir / "reports_refresh"),
+                    str(build_dir / "users_get"),
+                ],
+            )
+
 
 if __name__ == "__main__":
     unittest.main()

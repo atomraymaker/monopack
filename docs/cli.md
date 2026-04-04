@@ -24,6 +24,7 @@ Exit codes:
 | `--verify` / `--no-verify` | mutually exclusive flags | verify on | Controls verifier script execution. |
 | `--auto-fix` | flag | `False` | Opt-in auto-fix loop for missing-module verifier failures. |
 | `--debug` | flag | `False` | Print aggregated build/import resolution diagnostics to stderr. |
+| `--jobs` | `auto` or integer | `auto` | Parallel workers for multi-function builds. `auto` picks a conservative core-based value (capped) and falls back to serial with `--auto-fix`. |
 | `--sha-output` | comma list (`hex`,`b64`) | `hex` | Deploy-mode package digest output(s): `build/<function>.package.sha256` and/or `build/<function>.package.sha256.b64`. |
 
 ## Environment variables
@@ -37,6 +38,7 @@ CLI flags override env vars. Env vars override built-in defaults.
 - `MONOPACK_AUTO_FIX` (`1/0`, `true/false`, `yes/no`)
 - `MONOPACK_WITH_TESTS` (`1/0`, `true/false`, `yes/no`)
 - `MONOPACK_DEBUG` (`1/0`, `true/false`, `yes/no`)
+- `MONOPACK_JOBS` (`auto` or positive integer)
 
 ## Validation rules
 

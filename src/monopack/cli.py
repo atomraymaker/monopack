@@ -1,10 +1,13 @@
 import argparse
+import io
 import os
 from pathlib import Path
+from concurrent.futures import ThreadPoolExecutor
+from contextlib import redirect_stderr
 import sys
 
 from monopack import __version__
-from monopack.build import build_function
+from monopack.build import FIRST_PARTY_ROOTS, build_function, prewarm_shared_build_state
 from monopack.discovery import discover_functions
 from monopack.validation import (
     validate_cli_mode_options,
@@ -32,6 +35,62 @@ def _parse_env_bool(var_name: str, default: bool) -> bool:
 
 def _parse_env_mode() -> str:
     return os.environ.get("MONOPACK_MODE", "deploy")
+
+
+def _parse_jobs(raw_value: str) -> int | str:
+    normalized = raw_value.strip().lower()
+    if normalized == "auto":
+        return "auto"
+
+    try:
+        parsed = int(normalized)
+    except ValueError as exc:
+        raise ValueError(
+            f"Invalid --jobs value: {raw_value!r}. Expected a positive integer or 'auto'."
+        ) from exc
+
+    if parsed < 1:
+        raise ValueError(
+            f"Invalid --jobs value: {raw_value!r}. Expected a positive integer or 'auto'."
+        )
+
+    return parsed
+
+
+def _default_auto_jobs(function_count: int) -> int:
+    if function_count < 2:
+        return 1
+
+    cpu_count = os.cpu_count() or 1
+    suggested = max(1, cpu_count - 1)
+    return max(1, min(function_count, suggested, 8))
+
+
+def _resolve_jobs(
+    raw_value: str,
+    *,
+    function_count: int,
+    auto_fix: bool,
+    has_target: bool,
+) -> int:
+    parsed = _parse_jobs(raw_value)
+    if has_target:
+        return 1
+
+    if isinstance(parsed, int):
+        jobs = parsed
+    else:
+        jobs = _default_auto_jobs(function_count)
+    jobs = min(max(1, jobs), function_count)
+
+    if auto_fix and jobs > 1:
+        print(
+            "--auto-fix may rewrite source files; forcing --jobs=1 for safety.",
+            file=sys.stderr,
+        )
+        return 1
+
+    return jobs
 
 
 def _parse_sha_output(raw_value: str) -> set[str]:
@@ -82,6 +141,11 @@ def parse_args(argv=None):
     parser.add_argument("--auto-fix", dest="auto_fix", action="store_true")
     parser.add_argument("--debug", action="store_true")
     parser.add_argument(
+        "--jobs",
+        default=os.environ.get("MONOPACK_JOBS", "auto"),
+        help="Parallel workers for multi-function builds (positive integer or 'auto').",
+    )
+    parser.add_argument(
         "--sha-output",
         default="hex",
         help=(
@@ -131,20 +195,85 @@ def main(argv=None):
             for function_name in function_names:
                 validate_function_name(function_name, is_target=False)
 
-        for function_name in function_names:
-            build_target = build_function(
-                function_name=function_name,
-                functions_dir=functions_dir,
-                build_dir=build_dir,
+        jobs = _resolve_jobs(
+            args.jobs,
+            function_count=len(function_names),
+            auto_fix=args.auto_fix,
+            has_target=args.function_name is not None,
+        )
+        shared_state = None
+        if len(function_names) > 1:
+            shared_state = prewarm_shared_build_state(
                 project_root=project_root,
-                verify=args.verify,
-                mode=args.mode,
-                auto_fix=args.auto_fix,
-                with_tests=args.with_tests,
-                debug=args.debug,
-                sha_outputs=sha_outputs,
+                build_dir=build_dir,
+                first_party_roots=FIRST_PARTY_ROOTS,
             )
-            print(build_target)
+
+        if jobs <= 1:
+            for function_name in function_names:
+                build_target = build_function(
+                    function_name=function_name,
+                    functions_dir=functions_dir,
+                    build_dir=build_dir,
+                    project_root=project_root,
+                    verify=args.verify,
+                    mode=args.mode,
+                    auto_fix=args.auto_fix,
+                    with_tests=args.with_tests,
+                    debug=args.debug,
+                    sha_outputs=sha_outputs,
+                    shared_state=shared_state,
+                )
+                print(build_target)
+        else:
+            results: dict[str, tuple[Path, str]] = {}
+            errors: list[tuple[str, Exception]] = []
+
+            def _build_parallel(function_name: str) -> tuple[Path, str]:
+                stderr_buffer = io.StringIO()
+                with redirect_stderr(stderr_buffer):
+                    build_target = build_function(
+                        function_name=function_name,
+                        functions_dir=functions_dir,
+                        build_dir=build_dir,
+                        project_root=project_root,
+                        verify=args.verify,
+                        mode=args.mode,
+                        auto_fix=args.auto_fix,
+                        with_tests=args.with_tests,
+                        debug=args.debug,
+                        sha_outputs=sha_outputs,
+                        shared_state=shared_state,
+                    )
+                return build_target, stderr_buffer.getvalue()
+
+            with ThreadPoolExecutor(max_workers=jobs) as executor:
+                future_to_name = {
+                    executor.submit(_build_parallel, function_name): function_name
+                    for function_name in function_names
+                }
+                for future, function_name in future_to_name.items():
+                    try:
+                        results[function_name] = future.result()
+                    except Exception as exc:  # pragma: no cover - exercised via CLI path
+                        errors.append((function_name, exc))
+
+            if errors:
+                ordered_failures = sorted(errors, key=lambda item: item[0])
+                details = "\n".join(
+                    f"- {function_name}: {error}"
+                    for function_name, error in ordered_failures
+                )
+                raise RuntimeError(
+                    "One or more function builds failed:\n"
+                    f"{details}"
+                )
+
+            for function_name in function_names:
+                build_target, buffered_stderr = results[function_name]
+                if buffered_stderr:
+                    print(buffered_stderr, file=sys.stderr, end="")
+                print(build_target)
     except (FileNotFoundError, KeyError, RuntimeError, ValueError) as exc:
         print(str(exc), file=sys.stderr)
         return 2

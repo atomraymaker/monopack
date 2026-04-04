@@ -2,11 +2,13 @@
 
 import json
 import base64
+from dataclasses import dataclass
 import hashlib
 import re
 import shutil
 import subprocess
 import sys
+import threading
 from importlib.metadata import packages_distributions
 from pathlib import Path
 import zipfile
@@ -45,10 +47,22 @@ _MISSING_MODULE_RE = re.compile(
     r"ModuleNotFoundError:\s+No module named ['\"](?P<module>[^'\"]+)['\"]"
 )
 _DEPENDENCY_SYNC_CACHE: set[tuple[str, str, str]] = set()
+_DEPENDENCY_SYNC_LOCK = threading.Lock()
 _FIRST_PARTY_ANALYSIS_CACHE: dict[
     tuple[str, tuple[str, ...]],
     FirstPartyAnalysisCache,
 ] = {}
+_FIRST_PARTY_ANALYSIS_CACHE_LOCK = threading.Lock()
+
+
+@dataclass(frozen=True)
+class SharedBuildState:
+    """Reusable shared build artifacts for multi-function runs."""
+
+    lock_requirements_path: Path
+    wheelhouse: Path
+    package_map: dict[str, list[str]]
+    analysis_cache: FirstPartyAnalysisCache
 
 
 class VerificationFailedError(RuntimeError):
@@ -69,6 +83,7 @@ def build_function(
     debug: bool = False,
     max_retries: int = 3,
     sha_outputs: set[str] | None = None,
+    shared_state: SharedBuildState | None = None,
 ) -> Path:
     """Build one function and optionally write deploy artifacts.
 
@@ -91,6 +106,7 @@ def build_function(
                 with_tests=with_tests,
                 debug=debug,
                 sha_outputs=normalized_sha_outputs,
+                shared_state=shared_state,
             )
         except VerificationFailedError as exc:
             if not auto_fix or retries >= max_retries:
@@ -129,6 +145,7 @@ def _build_function_once(
     with_tests: bool,
     debug: bool,
     sha_outputs: set[str],
+    shared_state: SharedBuildState | None,
 ) -> Path:
     """Execute a single build attempt without auto-fix retry handling."""
 
@@ -138,11 +155,15 @@ def _build_function_once(
     entrypoint = resolve_entrypoint(functions_dir, function_name)
     inline_config = parse_inline_config(entrypoint.read_text(encoding="utf-8"))
     build_target = build_dir / function_name
-    lock_requirements_path, wheelhouse, package_map = sync_dependency_cache(
+    effective_shared_state = shared_state or prewarm_shared_build_state(
         project_root=project_root,
         build_dir=build_dir,
+        first_party_roots=FIRST_PARTY_ROOTS,
     )
-    analysis_cache = get_first_party_analysis_cache(project_root, FIRST_PARTY_ROOTS)
+    lock_requirements_path = effective_shared_state.lock_requirements_path
+    wheelhouse = effective_shared_state.wheelhouse
+    package_map = effective_shared_state.package_map
+    analysis_cache = effective_shared_state.analysis_cache
 
     if build_target.exists():
         shutil.rmtree(build_target)
@@ -628,56 +649,77 @@ def sync_dependency_cache(project_root: Path, build_dir: Path) -> tuple[Path, Pa
     lock_path = deps_root / DEPENDENCY_LOCK_FILENAME
     wheelhouse = deps_root / "wheelhouse"
 
-    if cache_key in _DEPENDENCY_SYNC_CACHE and lock_path.exists() and wheelhouse.exists():
-        package_map = _packages_distributions_from_python(deps_venv / "bin" / "python")
-        return lock_path, wheelhouse, package_map
+    with _DEPENDENCY_SYNC_LOCK:
+        if cache_key in _DEPENDENCY_SYNC_CACHE and lock_path.exists() and wheelhouse.exists():
+            package_map = _packages_distributions_from_python(deps_venv / "bin" / "python")
+            return lock_path, wheelhouse, package_map
 
-    deps_root.mkdir(parents=True, exist_ok=True)
-    wheelhouse.mkdir(parents=True, exist_ok=True)
+        deps_root.mkdir(parents=True, exist_ok=True)
+        wheelhouse.mkdir(parents=True, exist_ok=True)
 
-    if not deps_venv.exists():
+        if not deps_venv.exists():
+            _run_checked(
+                [sys.executable, "-m", "venv", str(deps_venv)],
+                "Failed to create dependency venv",
+            )
+
+        deps_python = deps_venv / "bin" / "python"
+
         _run_checked(
-            [sys.executable, "-m", "venv", str(deps_venv)],
-            "Failed to create dependency venv",
+            [
+                str(deps_python),
+                "-m",
+                "pip",
+                "install",
+                "-r",
+                str(source_requirements),
+            ],
+            "Failed to install top-level requirements into dependency cache",
         )
 
-    deps_python = deps_venv / "bin" / "python"
+        freeze_output = _run_checked(
+            [str(deps_python), "-m", "pip", "freeze", "--exclude-editable"],
+            "Failed to freeze dependency cache",
+        )
+        lock_path.write_text(freeze_output.stdout, encoding="utf-8")
 
-    _run_checked(
-        [
-            str(deps_python),
-            "-m",
-            "pip",
-            "install",
-            "-r",
-            str(source_requirements),
-        ],
-        "Failed to install top-level requirements into dependency cache",
+        _run_checked(
+            [
+                str(deps_python),
+                "-m",
+                "pip",
+                "download",
+                "--dest",
+                str(wheelhouse),
+                "-r",
+                str(lock_path),
+            ],
+            "Failed to prepare local dependency wheelhouse",
+        )
+
+        package_map = _packages_distributions_from_python(deps_python)
+        _DEPENDENCY_SYNC_CACHE.add(cache_key)
+        return lock_path, wheelhouse, package_map
+
+
+def prewarm_shared_build_state(
+    project_root: Path,
+    build_dir: Path,
+    first_party_roots: set[str],
+) -> SharedBuildState:
+    """Compute reusable dependency and import analysis state once."""
+
+    lock_requirements_path, wheelhouse, package_map = sync_dependency_cache(
+        project_root=project_root,
+        build_dir=build_dir,
     )
-
-    freeze_output = _run_checked(
-        [str(deps_python), "-m", "pip", "freeze", "--exclude-editable"],
-        "Failed to freeze dependency cache",
+    analysis_cache = get_first_party_analysis_cache(project_root, first_party_roots)
+    return SharedBuildState(
+        lock_requirements_path=lock_requirements_path,
+        wheelhouse=wheelhouse,
+        package_map=package_map,
+        analysis_cache=analysis_cache,
     )
-    lock_path.write_text(freeze_output.stdout, encoding="utf-8")
-
-    _run_checked(
-        [
-            str(deps_python),
-            "-m",
-            "pip",
-            "download",
-            "--dest",
-            str(wheelhouse),
-            "-r",
-            str(lock_path),
-        ],
-        "Failed to prepare local dependency wheelhouse",
-    )
-
-    package_map = _packages_distributions_from_python(deps_python)
-    _DEPENDENCY_SYNC_CACHE.add(cache_key)
-    return lock_path, wheelhouse, package_map
 
 
 def get_first_party_analysis_cache(
@@ -687,16 +729,17 @@ def get_first_party_analysis_cache(
     """Return a reusable first-party import analysis cache for this process."""
 
     key = (str(project_root.resolve()), tuple(sorted(first_party_roots)))
-    cached = _FIRST_PARTY_ANALYSIS_CACHE.get(key)
-    if cached is not None:
-        return cached
+    with _FIRST_PARTY_ANALYSIS_CACHE_LOCK:
+        cached = _FIRST_PARTY_ANALYSIS_CACHE.get(key)
+        if cached is not None:
+            return cached
 
-    cache = build_first_party_analysis_cache(
-        project_root=project_root,
-        first_party_roots=first_party_roots,
-    )
-    _FIRST_PARTY_ANALYSIS_CACHE[key] = cache
-    return cache
+        cache = build_first_party_analysis_cache(
+            project_root=project_root,
+            first_party_roots=first_party_roots,
+        )
+        _FIRST_PARTY_ANALYSIS_CACHE[key] = cache
+        return cache
 
 
 def _packages_distributions_from_python(python_executable: Path) -> dict[str, list[str]]:
