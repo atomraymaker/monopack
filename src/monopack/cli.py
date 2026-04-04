@@ -2,7 +2,7 @@ import argparse
 import io
 import os
 from pathlib import Path
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import redirect_stderr
 import sys
 
@@ -251,7 +251,8 @@ def main(argv=None):
                     executor.submit(_build_parallel, function_name): function_name
                     for function_name in function_names
                 }
-                for future, function_name in future_to_name.items():
+                for future in as_completed(future_to_name):
+                    function_name = future_to_name[future]
                     try:
                         results[function_name] = future.result()
                     except Exception as exc:  # pragma: no cover - exercised via CLI path

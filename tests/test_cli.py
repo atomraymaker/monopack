@@ -80,7 +80,7 @@ class CliTests(unittest.TestCase):
                 cli.parse_args(["--version"])
 
         self.assertEqual(exc.exception.code, 0)
-        self.assertEqual(stdout.getvalue().strip(), "monopack 0.2.0")
+        self.assertEqual(stdout.getvalue().strip(), f"monopack {cli.__version__}")
         self.assertEqual(stderr.getvalue(), "")
 
     def test_parse_sha_output_accepts_comma_separated_values(self):

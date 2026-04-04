@@ -372,6 +372,27 @@ ModuleNotFoundError: No module named 'app.hidden.runtime_dep'
             self.assertIs(first, second)
             self.assertEqual(build_cache.call_count, 1)
 
+    def test_get_first_party_analysis_cache_invalidates_when_runtime_files_change(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            project_root = Path(tmpdir)
+            entrypoint = project_root / "functions" / "users_get.py"
+            entrypoint.parent.mkdir(parents=True)
+            entrypoint.write_text("import app.users.service\n", encoding="utf-8")
+            service_file = project_root / "app" / "users" / "service.py"
+            service_file.parent.mkdir(parents=True)
+            service_file.write_text("VALUE = 1\n", encoding="utf-8")
+
+            with mock.patch(
+                "monopack.build.build_first_party_analysis_cache",
+                wraps=build_first_party_analysis_cache,
+            ) as build_cache:
+                first = get_first_party_analysis_cache(project_root)
+                service_file.write_text("VALUE = 100\n", encoding="utf-8")
+                second = get_first_party_analysis_cache(project_root)
+
+            self.assertIsNot(first, second)
+            self.assertEqual(build_cache.call_count, 2)
+
 
 if __name__ == "__main__":
     unittest.main()

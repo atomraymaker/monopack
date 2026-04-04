@@ -47,7 +47,7 @@ _MISSING_MODULE_RE = re.compile(
 _DEPENDENCY_SYNC_CACHE: set[tuple[str, str, str]] = set()
 _DEPENDENCY_SYNC_LOCK = threading.Lock()
 _FIRST_PARTY_ANALYSIS_CACHE: dict[
-    tuple[str, tuple[str, ...]],
+    tuple[str, tuple[tuple[str, int, int], ...]],
     FirstPartyAnalysisCache,
 ] = {}
 _FIRST_PARTY_ANALYSIS_CACHE_LOCK = threading.Lock()
@@ -665,7 +665,10 @@ def get_first_party_analysis_cache(
 ) -> FirstPartyAnalysisCache:
     """Return a reusable first-party import analysis cache for this process."""
 
-    key = (str(project_root.resolve()), tuple())
+    key = (
+        str(project_root.resolve()),
+        _runtime_python_file_signature(project_root),
+    )
     with _FIRST_PARTY_ANALYSIS_CACHE_LOCK:
         cached = _FIRST_PARTY_ANALYSIS_CACHE.get(key)
         if cached is not None:
@@ -676,6 +679,29 @@ def get_first_party_analysis_cache(
         )
         _FIRST_PARTY_ANALYSIS_CACHE[key] = cache
         return cache
+
+
+def _runtime_python_file_signature(
+    project_root: Path,
+) -> tuple[tuple[str, int, int], ...]:
+    """Return a content-shape signature for runtime Python files."""
+
+    excluded_roots = {"tests", "build", "dist", "venv", ".venv"}
+    entries: list[tuple[str, int, int]] = []
+
+    for path in sorted(project_root.rglob("*.py"), key=str):
+        relative = path.relative_to(project_root)
+        if not relative.parts or relative.parts[0] in excluded_roots:
+            continue
+        if any(part.startswith(".") or part == "__pycache__" for part in relative.parts):
+            continue
+        try:
+            stat = path.stat()
+        except FileNotFoundError:
+            continue
+        entries.append((relative.as_posix(), stat.st_mtime_ns, stat.st_size))
+
+    return tuple(entries)
 
 
 def _packages_distributions_from_python(python_executable: Path) -> dict[str, list[str]]:
