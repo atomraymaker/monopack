@@ -32,7 +32,7 @@ class BuildTests(unittest.TestCase):
 Build verification failed. stdout:\n\nstderr:
 Traceback (most recent call last):
   File "_monopack_verify.py", line 1, in <module>
-    import functions.users_get as target
+    import packs.users_get as target
 ModuleNotFoundError: No module named 'app.hidden.runtime_dep'
 """
 
@@ -148,8 +148,8 @@ ModuleNotFoundError: No module named 'app.hidden.runtime_dep'
             project_root = Path(tmpdir)
             build_target = project_root / "build" / "users_get"
             build_target.mkdir(parents=True)
-            (build_target / "functions").mkdir(parents=True)
-            (build_target / "functions" / "users_get.py").write_text("x = 1\n", encoding="utf-8")
+            (build_target / "packs").mkdir(parents=True)
+            (build_target / "packs" / "users_get.py").write_text("x = 1\n", encoding="utf-8")
             (build_target / "requirements.txt").write_text("requests==2.32.3\n", encoding="utf-8")
 
             written = write_package_sha_files(
@@ -204,8 +204,8 @@ ModuleNotFoundError: No module named 'app.hidden.runtime_dep'
             project_root = Path(tmpdir)
             build_target = project_root / "build" / "users_get"
             build_target.mkdir(parents=True)
-            (build_target / "functions").mkdir(parents=True)
-            (build_target / "functions" / "users_get.py").write_text("x = 1\n", encoding="utf-8")
+            (build_target / "packs").mkdir(parents=True)
+            (build_target / "packs" / "users_get.py").write_text("x = 1\n", encoding="utf-8")
             (build_target / "requirements.txt").write_text("requests==2.32.3\n", encoding="utf-8")
 
             first = package_content_digest(build_target)
@@ -321,8 +321,8 @@ ModuleNotFoundError: No module named 'app.hidden.runtime_dep'
             project_root = Path(tmpdir)
             build_target = project_root / "build" / "users_get"
             build_target.mkdir(parents=True)
-            (build_target / "functions").mkdir(parents=True)
-            (build_target / "functions" / "users_get.py").write_text("x = 1\n", encoding="utf-8")
+            (build_target / "packs").mkdir(parents=True)
+            (build_target / "packs" / "users_get.py").write_text("x = 1\n", encoding="utf-8")
             (build_target / "requirements.txt").write_text("requests==2.32.3\n", encoding="utf-8")
             (build_target / "requests").mkdir(parents=True)
             (build_target / "requests" / "__init__.py").write_text("__version__='x'\n", encoding="utf-8")
@@ -337,8 +337,8 @@ ModuleNotFoundError: No module named 'app.hidden.runtime_dep'
             project_root = Path(tmpdir)
             build_target = project_root / "build" / "users_get"
             build_target.mkdir(parents=True)
-            (build_target / "functions").mkdir(parents=True)
-            source_file = build_target / "functions" / "users_get.py"
+            (build_target / "packs").mkdir(parents=True)
+            source_file = build_target / "packs" / "users_get.py"
             source_file.write_text("x = 1\n", encoding="utf-8")
             (build_target / "requirements.txt").write_text("requests==2.32.3\n", encoding="utf-8")
 
@@ -355,7 +355,7 @@ ModuleNotFoundError: No module named 'app.hidden.runtime_dep'
     def test_get_first_party_analysis_cache_reuses_single_process_cache(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             project_root = Path(tmpdir)
-            entrypoint = project_root / "functions" / "users_get.py"
+            entrypoint = project_root / "packs" / "users_get.py"
             entrypoint.parent.mkdir(parents=True)
             entrypoint.write_text("import app.users.service\n", encoding="utf-8")
             service_file = project_root / "app" / "users" / "service.py"
@@ -375,7 +375,7 @@ ModuleNotFoundError: No module named 'app.hidden.runtime_dep'
     def test_get_first_party_analysis_cache_invalidates_when_runtime_files_change(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             project_root = Path(tmpdir)
-            entrypoint = project_root / "functions" / "users_get.py"
+            entrypoint = project_root / "packs" / "users_get.py"
             entrypoint.parent.mkdir(parents=True)
             entrypoint.write_text("import app.users.service\n", encoding="utf-8")
             service_file = project_root / "app" / "users" / "service.py"

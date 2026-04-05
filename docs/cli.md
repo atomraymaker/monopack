@@ -3,7 +3,7 @@
 ## Command
 
 ```bash
-PYTHONPATH=src python -m monopack [function_name] [options]
+PYTHONPATH=src python -m monopack [pack_name] [options]
 ```
 
 Exit codes:
@@ -16,22 +16,22 @@ Exit codes:
 | Argument | Type | Default | Behavior |
 | --- | --- | --- | --- |
 | `--version` | flag | n/a | Print installed CLI version and exit. |
-| `function_name` | positional, optional | `None` | Build one function (`functions/<name>.py`). If omitted, discover and build all functions in `functions_dir`. |
-| `--functions-dir` | path | `functions` | Directory containing entrypoints. `project_root` is derived from its parent. |
-| `--build-dir` | path | `build` | Output base dir. Each function builds to `<build_dir>/<function_name>/`. |
+| `pack_name` | positional, optional | `None` | Build one pack (`packs/<name>.py`). If omitted, discover and build all packs in `packs_dir`. |
+| `--packs-dir` | path | `packs` | Directory containing entrypoints. `project_root` is derived from its parent. |
+| `--build-dir` | path | `build` | Output base dir. Each pack builds to `<build_dir>/<pack_name>/`. |
 | `--mode` | `deploy` or `test` | `deploy` | `deploy`: runtime payload + zip. `test`: runtime payload + relevant tests (no zip). |
 | `--with-tests` | flag | `False` | Deploy mode only. Runs relevant tests before finalizing deploy payload. |
 | `--verify` / `--no-verify` | mutually exclusive flags | verify on | Controls verifier script execution. |
 | `--auto-fix` | flag | `False` | Opt-in auto-fix loop for missing-module verifier failures. |
 | `--debug` | flag | `False` | Print aggregated build/import resolution diagnostics to stderr. |
-| `--jobs` | `auto` or integer | `auto` | Parallel workers for multi-function builds. `auto` picks a conservative core-based value (capped) and falls back to serial with `--auto-fix`. |
-| `--sha-output` | comma list (`hex`,`b64`) | `hex` | Deploy-mode package digest output(s): `build/<function>.package.sha256` and/or `build/<function>.package.sha256.b64`. |
+| `--jobs` | `auto` or integer | `auto` | Parallel workers for multi-pack builds. `auto` picks a conservative core-based value (capped) and falls back to serial with `--auto-fix`. |
+| `--sha-output` | comma list (`hex`,`b64`) | `hex` | Deploy-mode package digest output(s): `build/<pack>.package.sha256` and/or `build/<pack>.package.sha256.b64`. |
 
 ## Environment variables
 
 CLI flags override env vars. Env vars override built-in defaults.
 
-- `MONOPACK_FUNCTIONS_DIR`
+- `MONOPACK_PACKS_DIR`
 - `MONOPACK_BUILD_DIR`
 - `MONOPACK_MODE` (`deploy` or `test`)
 - `MONOPACK_VERIFY` (`1/0`, `true/false`, `yes/no`)
@@ -42,17 +42,17 @@ CLI flags override env vars. Env vars override built-in defaults.
 
 ## Validation rules
 
-- `functions_dir` must exist and be a directory.
-- `build_dir` must differ from `functions_dir` and cannot be nested inside it.
+- `packs_dir` must exist and be a directory.
+- `build_dir` must differ from `packs_dir` and cannot be nested inside it.
 - `<project_root>/requirements.txt` must exist and be a file.
-- Function names must match `^[a-zA-Z0-9_]+$`.
+- Pack names must match `^[a-zA-Z0-9_]+$`.
 - Target names cannot contain `/`, `\\`, or `.`.
 - `--with-tests` is valid only with `--mode deploy`.
 - `--mode test` or `--with-tests` requires `<project_root>/tests/` to exist.
 
 ## Examples
 
-Deploy one function:
+Deploy one pack:
 
 ```bash
 PYTHONPATH=src python -m monopack users_get --mode deploy

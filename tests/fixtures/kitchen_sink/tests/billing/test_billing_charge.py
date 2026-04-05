@@ -2,7 +2,7 @@ import unittest
 
 import idna
 
-from functions.billing_charge import lambda_handler
+from packs.billing_charge import lambda_handler
 
 
 class BillingChargeTests(unittest.TestCase):

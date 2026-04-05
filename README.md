@@ -1,20 +1,20 @@
 # monopack
 
-`monopack` builds per-function Python Lambda bundles from a monolith-style repo.
+`monopack` builds per-pack Python Lambda bundles from a monolith-style repo.
 
 ## Background
 
-Go works well for multi-Lambda projects because one codebase can expose multiple `cmd` entrypoints and build each function with only what it needs.
+Go works well for multi-Lambda projects because one codebase can expose multiple `cmd` entrypoints and build each pack with only what it needs.
 
 Python workflows are usually less ergonomic at that scale:
 
 - AWS SAM and Serverless framework commonly package one Python artifact per project.
-- Per-function folder layouts can make shared code awkward.
+- Per-pack folder layouts can make shared code awkward.
 - Workarounds such as local packages, symlinks, or copied shared folders often add maintenance overhead.
 
-`monopack` is intended to make Python feel closer to that Go workflow without changing your project into N separate services. It takes a larger codebase and produces per-function zip artifacts by:
+`monopack` is intended to make Python feel closer to that Go workflow without changing your project into N separate services. It takes a larger codebase and produces per-pack zip artifacts by:
 
-- tracing imports from each function entrypoint,
+- tracing imports from each pack entrypoint,
 - copying reachable first-party files,
 - deriving a minimal pinned `requirements.txt` subset for third-party imports,
 - installing only that dependency subset into the build target,
@@ -24,9 +24,9 @@ It is intentionally conservative: this is import-based trimming with guardrails,
 
 ## What monopack does
 
-- Builds one or many functions from `functions/*.py` into `build/<function_name>/`.
-- In `deploy` mode, writes deploy zip artifacts at `build/<function_name>.zip`.
-- In `deploy` mode, writes package digest helper file(s) (`build/<function_name>.package.sha256` by default).
+- Builds one or many packs from `packs/*.py` into `build/<pack_name>/`.
+- In `deploy` mode, writes deploy zip artifacts at `build/<pack_name>.zip`.
+- In `deploy` mode, writes package digest helper file(s) (`build/<pack_name>.package.sha256` by default).
 - In `test` mode, copies relevant tests and runs them in the build target (no zip output).
 - Uses pinned project `requirements.txt` (`name==version` lines only).
 - Supports optional auto-fix for missing-module verification failures (`--auto-fix`, opt-in).
@@ -35,15 +35,15 @@ It is intentionally conservative: this is import-based trimming with guardrails,
 
 Project expectations:
 
-- `functions/` directory with function entrypoint files (`<name>.py`).
+- `packs/` directory with pack entrypoint files (`<name>.py`).
 - Project-level `requirements.txt` containing pinned `name==version` lines.
 - Optional `tests/` directory when using `--mode test`.
 
-Build one function in deploy mode:
+Build one pack in deploy mode:
 
 ```bash
 PYTHONPATH=src python -m monopack users_get \
-  --functions-dir functions \
+  --packs-dir packs \
   --build-dir build
 ```
 
@@ -51,16 +51,16 @@ Run confidence build in test mode:
 
 ```bash
 PYTHONPATH=src python -m monopack users_get \
-  --functions-dir functions \
+  --packs-dir packs \
   --build-dir /tmp/monopack-build \
   --mode test
 ```
 
-Build all functions discovered in `functions/*.py` (no target argument):
+Build all packs discovered in `packs/*.py` (no target argument):
 
 ```bash
 PYTHONPATH=src python -m monopack \
-  --functions-dir functions \
+  --packs-dir packs \
   --build-dir build
 ```
 
@@ -69,7 +69,7 @@ PYTHONPATH=src python -m monopack \
 Basic form:
 
 ```bash
-PYTHONPATH=src python -m monopack [function_name] [options]
+PYTHONPATH=src python -m monopack [pack_name] [options]
 ```
 
 Key flags for real-project usage:
@@ -80,7 +80,7 @@ Key flags for real-project usage:
 - `--verify` / `--no-verify`: verifier is on by default.
 - `--auto-fix`: opt-in auto-repair loop for missing imports during verify.
 - `--debug`: emit aggregated import/dependency resolution report to stderr.
-- `--jobs`: parallel workers for multi-function builds (`auto` default).
+- `--jobs`: parallel workers for multi-pack builds (`auto` default).
 - `--sha-output`: comma-separated package digest outputs for deploy mode (`hex`, `b64`; default `hex`).
 
 Package digest output guidance:
@@ -93,22 +93,22 @@ For full argument behavior and validation details, see `docs/cli.md`.
 
 ## Constraints and limits
 
-- Function discovery is shallow: only `functions/*.py` (excluding names starting with `_`).
-- Function names must use letters, numbers, and underscores; target names cannot include `/`, `\\`, or `.`.
-- Build directory must differ from functions directory and cannot be nested inside it.
+- Function discovery is shallow: only `packs/*.py` (excluding names starting with `_`).
+- Pack names must use letters, numbers, and underscores; pack names cannot include `/`, `\\`, or `.`.
+- Build directory must differ from packs directory and cannot be nested inside it.
 - Requirements parser accepts only pinned `name==version` lines (comments and blanks allowed).
-- First-party graph traversal follows imports that resolve to local modules under the same project root as `functions/` (excluding `tests/`).
+- First-party graph traversal follows imports that resolve to local modules under the same project root as `packs/` (excluding `tests/`).
 - Auto-fix only handles `ModuleNotFoundError` flows and retries up to 3 times when enabled.
 
 ## Recommended feedback loop for monolith split confidence
 
 1. Build the target in test mode with verification enabled:
-   `PYTHONPATH=src python -m monopack <function> --mode test --verify`.
-2. Inspect build output (`build/<function>/`) and generated `requirements.txt` for expected scope.
+   `PYTHONPATH=src python -m monopack <pack> --mode test --verify`.
+2. Inspect build output (`build/<pack>/`) and generated `requirements.txt` for expected scope.
 3. Build deploy artifact once confidence is good:
-   `PYTHONPATH=src python -m monopack <function> --mode deploy`.
+   `PYTHONPATH=src python -m monopack <pack> --mode deploy`.
 4. Optionally gate deploy build with tests:
-   `PYTHONPATH=src python -m monopack <function> --mode deploy --with-tests`.
+   `PYTHONPATH=src python -m monopack <pack> --mode deploy --with-tests`.
 5. Run repository tests to catch broader regressions:
    `python -m unittest discover -s tests -v`.
 6. Tighten imports/tests/inline config and repeat until scoped build behavior is stable.

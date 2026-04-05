@@ -1,7 +1,7 @@
 import unittest
 
 from app.billing.charge import run_charge
-from functions.billing_charge import lambda_handler
+from packs.billing_charge import lambda_handler
 import idna
 
 

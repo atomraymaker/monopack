@@ -7,12 +7,12 @@ from contextlib import redirect_stderr
 import sys
 
 from monopack import __version__
-from monopack.build import build_function, prewarm_shared_build_state
-from monopack.discovery import discover_functions
+from monopack.build import build_pack, prewarm_shared_build_state
+from monopack.discovery import discover_packs
 from monopack.validation import (
     validate_cli_mode_options,
     validate_cli_paths,
-    validate_function_name,
+    validate_pack_name,
 )
 
 
@@ -57,19 +57,19 @@ def _parse_jobs(raw_value: str) -> int | str:
     return parsed
 
 
-def _default_auto_jobs(function_count: int) -> int:
-    if function_count < 2:
+def _default_auto_jobs(pack_count: int) -> int:
+    if pack_count < 2:
         return 1
 
     cpu_count = os.cpu_count() or 1
     suggested = max(1, cpu_count - 1)
-    return max(1, min(function_count, suggested, 8))
+    return max(1, min(pack_count, suggested, 8))
 
 
 def _resolve_jobs(
     raw_value: str,
     *,
-    function_count: int,
+    pack_count: int,
     auto_fix: bool,
     has_target: bool,
 ) -> int:
@@ -80,8 +80,8 @@ def _resolve_jobs(
     if isinstance(parsed, int):
         jobs = parsed
     else:
-        jobs = _default_auto_jobs(function_count)
-    jobs = min(max(1, jobs), function_count)
+        jobs = _default_auto_jobs(pack_count)
+    jobs = min(max(1, jobs), pack_count)
 
     if auto_fix and jobs > 1:
         print(
@@ -118,10 +118,10 @@ def parse_args(argv=None):
         action="version",
         version=f"%(prog)s {__version__}",
     )
-    parser.add_argument("function_name", nargs="?")
+    parser.add_argument("pack_name", nargs="?")
     parser.add_argument(
-        "--functions-dir",
-        default=os.environ.get("MONOPACK_FUNCTIONS_DIR", "functions"),
+        "--packs-dir",
+        default=os.environ.get("MONOPACK_PACKS_DIR", "packs"),
     )
     parser.add_argument(
         "--build-dir",
@@ -143,7 +143,7 @@ def parse_args(argv=None):
     parser.add_argument(
         "--jobs",
         default=os.environ.get("MONOPACK_JOBS", "auto"),
-        help="Parallel workers for multi-function builds (positive integer or 'auto').",
+        help="Parallel workers for multi-pack builds (positive integer or 'auto').",
     )
     parser.add_argument(
         "--sha-output",
@@ -165,9 +165,9 @@ def parse_args(argv=None):
 def main(argv=None):
     try:
         args = parse_args(argv)
-        functions_dir = Path(args.functions_dir)
+        packs_dir = Path(args.packs_dir)
         build_dir = Path(args.build_dir)
-        project_root = functions_dir.parent
+        project_root = packs_dir.parent
         sha_outputs = _parse_sha_output(args.sha_output)
 
         validate_cli_mode_options(
@@ -175,44 +175,44 @@ def main(argv=None):
             with_tests=args.with_tests,
         )
         validate_cli_paths(
-            functions_dir,
+            packs_dir,
             build_dir,
             project_root,
             args.mode,
             args.with_tests,
         )
 
-        if args.function_name is not None:
-            validate_function_name(args.function_name, is_target=True)
-            function_names = [args.function_name]
+        if args.pack_name is not None:
+            validate_pack_name(args.pack_name, is_target=True)
+            pack_names = [args.pack_name]
         else:
-            function_names = discover_functions(functions_dir)
-            if not function_names:
+            pack_names = discover_packs(packs_dir)
+            if not pack_names:
                 raise RuntimeError(
-                    f"No functions discovered in {functions_dir}. "
-                    "Add at least one function file (*.py) or pass a target function name."
+                    f"No packs discovered in {packs_dir}. "
+                    "Add at least one pack file (*.py) or pass a target pack name."
                 )
-            for function_name in function_names:
-                validate_function_name(function_name, is_target=False)
+            for pack_name in pack_names:
+                validate_pack_name(pack_name, is_target=False)
 
         jobs = _resolve_jobs(
             args.jobs,
-            function_count=len(function_names),
+            pack_count=len(pack_names),
             auto_fix=args.auto_fix,
-            has_target=args.function_name is not None,
+            has_target=args.pack_name is not None,
         )
         shared_state = None
-        if len(function_names) > 1:
+        if len(pack_names) > 1:
             shared_state = prewarm_shared_build_state(
                 project_root=project_root,
                 build_dir=build_dir,
             )
 
         if jobs <= 1:
-            for function_name in function_names:
-                build_target = build_function(
-                    function_name=function_name,
-                    functions_dir=functions_dir,
+            for pack_name in pack_names:
+                build_target = build_pack(
+                    pack_name=pack_name,
+                    packs_dir=packs_dir,
                     build_dir=build_dir,
                     project_root=project_root,
                     verify=args.verify,
@@ -228,12 +228,12 @@ def main(argv=None):
             results: dict[str, tuple[Path, str]] = {}
             errors: list[tuple[str, Exception]] = []
 
-            def _build_parallel(function_name: str) -> tuple[Path, str]:
+            def _build_parallel(pack_name: str) -> tuple[Path, str]:
                 stderr_buffer = io.StringIO()
                 with redirect_stderr(stderr_buffer):
-                    build_target = build_function(
-                        function_name=function_name,
-                        functions_dir=functions_dir,
+                    build_target = build_pack(
+                        pack_name=pack_name,
+                        packs_dir=packs_dir,
                         build_dir=build_dir,
                         project_root=project_root,
                         verify=args.verify,
@@ -248,29 +248,29 @@ def main(argv=None):
 
             with ThreadPoolExecutor(max_workers=jobs) as executor:
                 future_to_name = {
-                    executor.submit(_build_parallel, function_name): function_name
-                    for function_name in function_names
+                    executor.submit(_build_parallel, pack_name): pack_name
+                    for pack_name in pack_names
                 }
                 for future in as_completed(future_to_name):
-                    function_name = future_to_name[future]
+                    pack_name = future_to_name[future]
                     try:
-                        results[function_name] = future.result()
+                        results[pack_name] = future.result()
                     except Exception as exc:  # pragma: no cover - exercised via CLI path
-                        errors.append((function_name, exc))
+                        errors.append((pack_name, exc))
 
             if errors:
                 ordered_failures = sorted(errors, key=lambda item: item[0])
                 details = "\n".join(
-                    f"- {function_name}: {error}"
-                    for function_name, error in ordered_failures
+                    f"- {pack_name}: {error}"
+                    for pack_name, error in ordered_failures
                 )
                 raise RuntimeError(
-                    "One or more function builds failed:\n"
+                    "One or more pack builds failed:\n"
                     f"{details}"
                 )
 
-            for function_name in function_names:
-                build_target, buffered_stderr = results[function_name]
+            for pack_name in pack_names:
+                build_target, buffered_stderr = results[pack_name]
                 if buffered_stderr:
                     print(buffered_stderr, file=sys.stderr, end="")
                 print(build_target)

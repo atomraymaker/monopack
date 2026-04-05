@@ -27,8 +27,8 @@ class CliTests(unittest.TestCase):
         with mock.patch.dict("os.environ", {}, clear=True):
             args = cli.parse_args([])
 
-        self.assertIsNone(args.function_name)
-        self.assertEqual(args.functions_dir, "functions")
+        self.assertIsNone(args.pack_name)
+        self.assertEqual(args.packs_dir, "packs")
         self.assertEqual(args.build_dir, "build")
         self.assertTrue(args.verify)
         self.assertFalse(args.auto_fix)
@@ -43,7 +43,7 @@ class CliTests(unittest.TestCase):
             args = cli.parse_args(
                 [
                     "my_func",
-                    "--functions-dir",
+                    "--packs-dir",
                     "fns",
                     "--build-dir",
                     "out",
@@ -60,8 +60,8 @@ class CliTests(unittest.TestCase):
                 ]
             )
 
-        self.assertEqual(args.function_name, "my_func")
-        self.assertEqual(args.functions_dir, "fns")
+        self.assertEqual(args.pack_name, "my_func")
+        self.assertEqual(args.packs_dir, "fns")
         self.assertEqual(args.build_dir, "out")
         self.assertFalse(args.verify)
         self.assertTrue(args.auto_fix)
@@ -108,7 +108,7 @@ class CliTests(unittest.TestCase):
         with mock.patch.dict(
             "os.environ",
             {
-                "MONOPACK_FUNCTIONS_DIR": "env_functions",
+                "MONOPACK_PACKS_DIR": "env_packs",
                 "MONOPACK_BUILD_DIR": "env_build",
                 "MONOPACK_MODE": "test",
                 "MONOPACK_VERIFY": "no",
@@ -121,7 +121,7 @@ class CliTests(unittest.TestCase):
         ):
             args = cli.parse_args([])
 
-        self.assertEqual(args.functions_dir, "env_functions")
+        self.assertEqual(args.packs_dir, "env_packs")
         self.assertEqual(args.build_dir, "env_build")
         self.assertEqual(args.mode, "test")
         self.assertFalse(args.verify)
@@ -134,7 +134,7 @@ class CliTests(unittest.TestCase):
         with mock.patch.dict(
             "os.environ",
             {
-                "MONOPACK_FUNCTIONS_DIR": "env_functions",
+                "MONOPACK_PACKS_DIR": "env_packs",
                 "MONOPACK_BUILD_DIR": "env_build",
                 "MONOPACK_MODE": "test",
                 "MONOPACK_VERIFY": "false",
@@ -146,8 +146,8 @@ class CliTests(unittest.TestCase):
         ):
             args = cli.parse_args(
                 [
-                    "--functions-dir",
-                    "arg_functions",
+                    "--packs-dir",
+                    "arg_packs",
                     "--build-dir",
                     "arg_build",
                     "--mode",
@@ -159,7 +159,7 @@ class CliTests(unittest.TestCase):
                 ]
             )
 
-        self.assertEqual(args.functions_dir, "arg_functions")
+        self.assertEqual(args.packs_dir, "arg_packs")
         self.assertEqual(args.build_dir, "arg_build")
         self.assertEqual(args.mode, "deploy")
         self.assertTrue(args.verify)
@@ -170,9 +170,9 @@ class CliTests(unittest.TestCase):
     def test_main_returns_error_for_invalid_env_bool(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             project_root = Path(tmpdir) / "project"
-            functions_dir = project_root / "functions"
-            functions_dir.mkdir(parents=True)
-            (functions_dir / "users_get.py").write_text("", encoding="utf-8")
+            packs_dir = project_root / "packs"
+            packs_dir.mkdir(parents=True)
+            (packs_dir / "users_get.py").write_text("", encoding="utf-8")
             (project_root / "requirements.txt").write_text("", encoding="utf-8")
 
             stdout = io.StringIO()
@@ -180,7 +180,7 @@ class CliTests(unittest.TestCase):
             with mock.patch.dict(
                 "os.environ",
                 {
-                    "MONOPACK_FUNCTIONS_DIR": str(functions_dir),
+                    "MONOPACK_PACKS_DIR": str(packs_dir),
                     "MONOPACK_BUILD_DIR": str(project_root / "build"),
                     "MONOPACK_VERIFY": "maybe",
                 },
@@ -196,9 +196,9 @@ class CliTests(unittest.TestCase):
     def test_main_returns_error_for_invalid_env_mode(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             project_root = Path(tmpdir) / "project"
-            functions_dir = project_root / "functions"
-            functions_dir.mkdir(parents=True)
-            (functions_dir / "users_get.py").write_text("", encoding="utf-8")
+            packs_dir = project_root / "packs"
+            packs_dir.mkdir(parents=True)
+            (packs_dir / "users_get.py").write_text("", encoding="utf-8")
             (project_root / "requirements.txt").write_text("", encoding="utf-8")
 
             stdout = io.StringIO()
@@ -206,7 +206,7 @@ class CliTests(unittest.TestCase):
             with mock.patch.dict(
                 "os.environ",
                 {
-                    "MONOPACK_FUNCTIONS_DIR": str(functions_dir),
+                    "MONOPACK_PACKS_DIR": str(packs_dir),
                     "MONOPACK_BUILD_DIR": str(project_root / "build"),
                     "MONOPACK_MODE": "staging",
                 },
@@ -224,7 +224,7 @@ class CliTests(unittest.TestCase):
             project_root = Path(tmpdir) / "project"
             fixture_root = Path(__file__).resolve().parent / "fixtures" / "simple"
             shutil.copytree(fixture_root, project_root)
-            functions_dir = project_root / "functions"
+            packs_dir = project_root / "packs"
             build_dir = project_root / "build"
             app_users_dir = project_root / "app" / "users"
             app_users_dir.mkdir(parents=True)
@@ -235,7 +235,7 @@ class CliTests(unittest.TestCase):
                 "    return {'id': 1}\n",
                 encoding="utf-8",
             )
-            (functions_dir / "users_get.py").write_text(
+            (packs_dir / "users_get.py").write_text(
                 "from app.users.service import get_profile\n"
                 "\n"
                 "\n"
@@ -263,7 +263,7 @@ class CliTests(unittest.TestCase):
             with mock.patch.dict(
                 "os.environ",
                 {
-                    "MONOPACK_FUNCTIONS_DIR": str(functions_dir),
+                    "MONOPACK_PACKS_DIR": str(packs_dir),
                     "MONOPACK_BUILD_DIR": str(build_dir),
                     "MONOPACK_MODE": "test",
                 },
@@ -283,8 +283,8 @@ class CliTests(unittest.TestCase):
     def test_main_returns_error_when_with_tests_used_in_test_mode(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             project_root = Path(tmpdir) / "project"
-            functions_dir = project_root / "functions"
-            functions_dir.mkdir(parents=True)
+            packs_dir = project_root / "packs"
+            packs_dir.mkdir(parents=True)
             (project_root / "requirements.txt").write_text("", encoding="utf-8")
 
             stdout = io.StringIO()
@@ -292,8 +292,8 @@ class CliTests(unittest.TestCase):
             with redirect_stdout(stdout), redirect_stderr(stderr):
                 result = cli.main(
                     [
-                        "--functions-dir",
-                        str(functions_dir),
+                        "--packs-dir",
+                        str(packs_dir),
                         "--with-tests",
                         "--mode",
                         "test",
@@ -307,20 +307,20 @@ class CliTests(unittest.TestCase):
             stderr.getvalue(),
         )
 
-    def test_main_builds_all_functions_when_no_target(self):
+    def test_main_builds_all_packs_when_no_target(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             project_root = Path(tmpdir) / "project"
             fixture_root = Path(__file__).resolve().parent / "fixtures" / "simple"
             shutil.copytree(fixture_root, project_root)
-            functions_dir = project_root / "functions"
+            packs_dir = project_root / "packs"
             build_dir = project_root / "build"
 
             stdout = io.StringIO()
             stderr = io.StringIO()
             with redirect_stdout(stdout), redirect_stderr(stderr):
                 result = cli.main([
-                    "--functions-dir",
-                    str(functions_dir),
+                    "--packs-dir",
+                    str(packs_dir),
                     "--build-dir",
                     str(build_dir),
                 ])
@@ -334,7 +334,7 @@ class CliTests(unittest.TestCase):
             project_root = Path(tmpdir) / "project"
             fixture_root = Path(__file__).resolve().parent / "fixtures" / "simple"
             shutil.copytree(fixture_root, project_root)
-            functions_dir = project_root / "functions"
+            packs_dir = project_root / "packs"
             build_dir = project_root / "build"
 
             stdout = io.StringIO()
@@ -342,8 +342,8 @@ class CliTests(unittest.TestCase):
             with redirect_stdout(stdout), redirect_stderr(stderr):
                 result = cli.main([
                     "users_get",
-                    "--functions-dir",
-                    str(functions_dir),
+                    "--packs-dir",
+                    str(packs_dir),
                     "--build-dir",
                     str(build_dir),
                 ])
@@ -355,69 +355,69 @@ class CliTests(unittest.TestCase):
     def test_main_returns_error_when_target_missing(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             project_root = Path(tmpdir) / "project"
-            functions_dir = project_root / "functions"
-            functions_dir.mkdir(parents=True)
+            packs_dir = project_root / "packs"
+            packs_dir.mkdir(parents=True)
             (project_root / "requirements.txt").write_text("", encoding="utf-8")
 
             stdout = io.StringIO()
             stderr = io.StringIO()
             with redirect_stdout(stdout), redirect_stderr(stderr):
-                result = cli.main(["missing", "--functions-dir", str(functions_dir)])
+                result = cli.main(["missing", "--packs-dir", str(packs_dir)])
 
         self.assertEqual(result, 2)
         self.assertEqual(stdout.getvalue(), "")
-        self.assertIn("Function 'missing' not found", stderr.getvalue())
+        self.assertIn("Pack 'missing' not found", stderr.getvalue())
 
     def test_main_returns_error_when_no_functions_discovered(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             project_root = Path(tmpdir) / "project"
-            functions_dir = project_root / "functions"
-            functions_dir.mkdir(parents=True)
+            packs_dir = project_root / "packs"
+            packs_dir.mkdir(parents=True)
             (project_root / "requirements.txt").write_text("", encoding="utf-8")
 
             stdout = io.StringIO()
             stderr = io.StringIO()
             with redirect_stdout(stdout), redirect_stderr(stderr):
-                result = cli.main(["--functions-dir", str(functions_dir)])
+                result = cli.main(["--packs-dir", str(packs_dir)])
 
         self.assertEqual(result, 2)
         self.assertEqual(stdout.getvalue(), "")
-        self.assertIn("No functions discovered", stderr.getvalue())
+        self.assertIn("No packs discovered", stderr.getvalue())
 
-    def test_main_returns_error_when_functions_dir_missing(self):
+    def test_main_returns_error_when_packs_dir_missing(self):
         with tempfile.TemporaryDirectory() as tmpdir:
-            missing_functions_dir = Path(tmpdir) / "missing"
+            missing_packs_dir = Path(tmpdir) / "missing"
 
             stdout = io.StringIO()
             stderr = io.StringIO()
             with redirect_stdout(stdout), redirect_stderr(stderr):
-                result = cli.main(["--functions-dir", str(missing_functions_dir)])
+                result = cli.main(["--packs-dir", str(missing_packs_dir)])
 
         self.assertEqual(result, 2)
         self.assertEqual(stdout.getvalue(), "")
-        self.assertIn("Functions directory does not exist", stderr.getvalue())
+        self.assertIn("Packs directory does not exist", stderr.getvalue())
 
-    def test_main_returns_error_when_functions_dir_is_not_directory(self):
+    def test_main_returns_error_when_packs_dir_is_not_directory(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             project_root = Path(tmpdir) / "project"
             project_root.mkdir(parents=True)
-            functions_file = project_root / "functions"
+            functions_file = project_root / "packs"
             functions_file.write_text("", encoding="utf-8")
 
             stdout = io.StringIO()
             stderr = io.StringIO()
             with redirect_stdout(stdout), redirect_stderr(stderr):
-                result = cli.main(["--functions-dir", str(functions_file)])
+                result = cli.main(["--packs-dir", str(functions_file)])
 
         self.assertEqual(result, 2)
         self.assertEqual(stdout.getvalue(), "")
-        self.assertIn("Functions directory is not a directory", stderr.getvalue())
+        self.assertIn("Packs directory is not a directory", stderr.getvalue())
 
-    def test_main_returns_error_when_build_dir_equals_functions_dir(self):
+    def test_main_returns_error_when_build_dir_equals_packs_dir(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             project_root = Path(tmpdir) / "project"
-            functions_dir = project_root / "functions"
-            functions_dir.mkdir(parents=True)
+            packs_dir = project_root / "packs"
+            packs_dir.mkdir(parents=True)
             (project_root / "requirements.txt").write_text("", encoding="utf-8")
 
             stdout = io.StringIO()
@@ -425,35 +425,35 @@ class CliTests(unittest.TestCase):
             with redirect_stdout(stdout), redirect_stderr(stderr):
                 result = cli.main(
                     [
-                        "--functions-dir",
-                        str(functions_dir),
+                        "--packs-dir",
+                        str(packs_dir),
                         "--build-dir",
-                        str(functions_dir),
+                        str(packs_dir),
                     ]
                 )
 
         self.assertEqual(result, 2)
         self.assertEqual(stdout.getvalue(), "")
         self.assertIn(
-            "Build directory must be different from functions directory",
+            "Build directory must be different from packs directory",
             stderr.getvalue(),
         )
 
-    def test_main_returns_error_when_build_dir_inside_functions_dir(self):
+    def test_main_returns_error_when_build_dir_inside_packs_dir(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             project_root = Path(tmpdir) / "project"
-            functions_dir = project_root / "functions"
-            functions_dir.mkdir(parents=True)
+            packs_dir = project_root / "packs"
+            packs_dir.mkdir(parents=True)
             (project_root / "requirements.txt").write_text("", encoding="utf-8")
-            nested_build_dir = functions_dir / "build"
+            nested_build_dir = packs_dir / "build"
 
             stdout = io.StringIO()
             stderr = io.StringIO()
             with redirect_stdout(stdout), redirect_stderr(stderr):
                 result = cli.main(
                     [
-                        "--functions-dir",
-                        str(functions_dir),
+                        "--packs-dir",
+                        str(packs_dir),
                         "--build-dir",
                         str(nested_build_dir),
                     ]
@@ -462,73 +462,73 @@ class CliTests(unittest.TestCase):
         self.assertEqual(result, 2)
         self.assertEqual(stdout.getvalue(), "")
         self.assertIn(
-            "Build directory must not be inside functions directory",
+            "Build directory must not be inside packs directory",
             stderr.getvalue(),
         )
 
     def test_main_returns_error_when_requirements_missing(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             project_root = Path(tmpdir) / "project"
-            functions_dir = project_root / "functions"
-            functions_dir.mkdir(parents=True)
+            packs_dir = project_root / "packs"
+            packs_dir.mkdir(parents=True)
 
             stdout = io.StringIO()
             stderr = io.StringIO()
             with redirect_stdout(stdout), redirect_stderr(stderr):
-                result = cli.main(["--functions-dir", str(functions_dir)])
+                result = cli.main(["--packs-dir", str(packs_dir)])
 
         self.assertEqual(result, 2)
         self.assertEqual(stdout.getvalue(), "")
         self.assertIn("Missing required requirements file", stderr.getvalue())
 
-    def test_main_returns_error_for_invalid_discovered_function_name(self):
+    def test_main_returns_error_for_invalid_discovered_pack_name(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             project_root = Path(tmpdir) / "project"
-            functions_dir = project_root / "functions"
-            functions_dir.mkdir(parents=True)
+            packs_dir = project_root / "packs"
+            packs_dir.mkdir(parents=True)
             (project_root / "requirements.txt").write_text("", encoding="utf-8")
-            (functions_dir / "bad-name.py").write_text("", encoding="utf-8")
+            (packs_dir / "bad-name.py").write_text("", encoding="utf-8")
 
             stdout = io.StringIO()
             stderr = io.StringIO()
             with redirect_stdout(stdout), redirect_stderr(stderr):
-                result = cli.main(["--functions-dir", str(functions_dir)])
+                result = cli.main(["--packs-dir", str(packs_dir)])
 
         self.assertEqual(result, 2)
         self.assertEqual(stdout.getvalue(), "")
-        self.assertIn("Invalid function name 'bad-name'", stderr.getvalue())
+        self.assertIn("Invalid pack name 'bad-name'", stderr.getvalue())
 
-    def test_main_returns_error_for_invalid_target_function_name(self):
+    def test_main_returns_error_for_invalid_target_pack_name(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             project_root = Path(tmpdir) / "project"
-            functions_dir = project_root / "functions"
-            functions_dir.mkdir(parents=True)
+            packs_dir = project_root / "packs"
+            packs_dir.mkdir(parents=True)
             (project_root / "requirements.txt").write_text("", encoding="utf-8")
 
             stdout = io.StringIO()
             stderr = io.StringIO()
             with redirect_stdout(stdout), redirect_stderr(stderr):
-                result = cli.main(["nested/users", "--functions-dir", str(functions_dir)])
+                result = cli.main(["nested/users", "--packs-dir", str(packs_dir)])
 
         self.assertEqual(result, 2)
         self.assertEqual(stdout.getvalue(), "")
         self.assertIn(
-            "Target function name must not contain path separators or dots",
+            "Target pack name must not contain path separators or dots",
             stderr.getvalue(),
         )
 
     def test_main_returns_error_when_test_mode_has_no_tests_dir(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             project_root = Path(tmpdir) / "project"
-            functions_dir = project_root / "functions"
-            functions_dir.mkdir(parents=True)
+            packs_dir = project_root / "packs"
+            packs_dir.mkdir(parents=True)
             (project_root / "requirements.txt").write_text("", encoding="utf-8")
 
             stdout = io.StringIO()
             stderr = io.StringIO()
             with redirect_stdout(stdout), redirect_stderr(stderr):
                 result = cli.main(
-                    ["--functions-dir", str(functions_dir), "--mode", "test"]
+                    ["--packs-dir", str(packs_dir), "--mode", "test"]
                 )
 
         self.assertEqual(result, 2)
@@ -538,9 +538,9 @@ class CliTests(unittest.TestCase):
     def test_main_returns_error_for_invalid_sha_output(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             project_root = Path(tmpdir) / "project"
-            functions_dir = project_root / "functions"
-            functions_dir.mkdir(parents=True)
-            (functions_dir / "users_get.py").write_text("", encoding="utf-8")
+            packs_dir = project_root / "packs"
+            packs_dir.mkdir(parents=True)
+            (packs_dir / "users_get.py").write_text("", encoding="utf-8")
             (project_root / "requirements.txt").write_text("", encoding="utf-8")
 
             stdout = io.StringIO()
@@ -549,8 +549,8 @@ class CliTests(unittest.TestCase):
                 result = cli.main(
                     [
                         "users_get",
-                        "--functions-dir",
-                        str(functions_dir),
+                        "--packs-dir",
+                        str(packs_dir),
                         "--sha-output",
                         "hex,md5",
                     ]
@@ -560,20 +560,20 @@ class CliTests(unittest.TestCase):
         self.assertEqual(stdout.getvalue(), "")
         self.assertIn("Unsupported --sha-output values", stderr.getvalue())
 
-    def test_main_threads_auto_fix_to_build_function(self):
+    def test_main_threads_auto_fix_to_build_pack(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             project_root = Path(tmpdir) / "project"
             fixture_root = Path(__file__).resolve().parent / "fixtures" / "simple"
             shutil.copytree(fixture_root, project_root)
-            functions_dir = project_root / "functions"
+            packs_dir = project_root / "packs"
             build_dir = project_root / "build"
 
-            with mock.patch("monopack.cli.build_function", return_value=build_dir / "users_get") as build:
+            with mock.patch("monopack.cli.build_pack", return_value=build_dir / "users_get") as build:
                 result = cli.main(
                     [
                         "users_get",
-                        "--functions-dir",
-                        str(functions_dir),
+                        "--packs-dir",
+                        str(packs_dir),
                         "--build-dir",
                         str(build_dir),
                         "--auto-fix",
@@ -585,20 +585,20 @@ class CliTests(unittest.TestCase):
         self.assertFalse(build.call_args.kwargs["with_tests"])
         self.assertEqual(build.call_args.kwargs["sha_outputs"], {"hex"})
 
-    def test_main_threads_with_tests_to_build_function(self):
+    def test_main_threads_with_tests_to_build_pack(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             project_root = Path(tmpdir) / "project"
             fixture_root = Path(__file__).resolve().parent / "fixtures" / "test_mode"
             shutil.copytree(fixture_root, project_root)
-            functions_dir = project_root / "functions"
+            packs_dir = project_root / "packs"
             build_dir = project_root / "build"
 
-            with mock.patch("monopack.cli.build_function", return_value=build_dir / "users_get") as build:
+            with mock.patch("monopack.cli.build_pack", return_value=build_dir / "users_get") as build:
                 result = cli.main(
                     [
                         "users_get",
-                        "--functions-dir",
-                        str(functions_dir),
+                        "--packs-dir",
+                        str(packs_dir),
                         "--build-dir",
                         str(build_dir),
                         "--mode",
@@ -610,20 +610,20 @@ class CliTests(unittest.TestCase):
         self.assertEqual(result, 0)
         self.assertTrue(build.call_args.kwargs["with_tests"])
 
-    def test_main_threads_sha_outputs_to_build_function(self):
+    def test_main_threads_sha_outputs_to_build_pack(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             project_root = Path(tmpdir) / "project"
             fixture_root = Path(__file__).resolve().parent / "fixtures" / "simple"
             shutil.copytree(fixture_root, project_root)
-            functions_dir = project_root / "functions"
+            packs_dir = project_root / "packs"
             build_dir = project_root / "build"
 
-            with mock.patch("monopack.cli.build_function", return_value=build_dir / "users_get") as build:
+            with mock.patch("monopack.cli.build_pack", return_value=build_dir / "users_get") as build:
                 result = cli.main(
                     [
                         "users_get",
-                        "--functions-dir",
-                        str(functions_dir),
+                        "--packs-dir",
+                        str(packs_dir),
                         "--build-dir",
                         str(build_dir),
                         "--sha-output",
@@ -634,20 +634,20 @@ class CliTests(unittest.TestCase):
         self.assertEqual(result, 0)
         self.assertEqual(build.call_args.kwargs["sha_outputs"], {"hex", "b64"})
 
-    def test_main_threads_debug_to_build_function(self):
+    def test_main_threads_debug_to_build_pack(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             project_root = Path(tmpdir) / "project"
             fixture_root = Path(__file__).resolve().parent / "fixtures" / "simple"
             shutil.copytree(fixture_root, project_root)
-            functions_dir = project_root / "functions"
+            packs_dir = project_root / "packs"
             build_dir = project_root / "build"
 
-            with mock.patch("monopack.cli.build_function", return_value=build_dir / "users_get") as build:
+            with mock.patch("monopack.cli.build_pack", return_value=build_dir / "users_get") as build:
                 result = cli.main(
                     [
                         "users_get",
-                        "--functions-dir",
-                        str(functions_dir),
+                        "--packs-dir",
+                        str(packs_dir),
                         "--build-dir",
                         str(build_dir),
                         "--debug",
@@ -657,21 +657,21 @@ class CliTests(unittest.TestCase):
         self.assertEqual(result, 0)
         self.assertTrue(build.call_args.kwargs["debug"])
 
-    def test_main_builds_all_functions_with_jobs_and_deterministic_output(self):
+    def test_main_builds_all_packs_with_jobs_and_deterministic_output(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             project_root = Path(tmpdir) / "project"
-            functions_dir = project_root / "functions"
+            packs_dir = project_root / "packs"
             build_dir = project_root / "build"
-            functions_dir.mkdir(parents=True)
-            (functions_dir / "users_get.py").write_text("", encoding="utf-8")
-            (functions_dir / "billing_charge.py").write_text("", encoding="utf-8")
+            packs_dir.mkdir(parents=True)
+            (packs_dir / "users_get.py").write_text("", encoding="utf-8")
+            (packs_dir / "billing_charge.py").write_text("", encoding="utf-8")
             (project_root / "requirements.txt").write_text("", encoding="utf-8")
 
             sentinel_shared_state = object()
 
-            def _fake_build(function_name, **kwargs):
+            def _fake_build(pack_name, **kwargs):
                 self.assertIs(kwargs["shared_state"], sentinel_shared_state)
-                return build_dir / function_name
+                return build_dir / pack_name
 
             stdout = io.StringIO()
             stderr = io.StringIO()
@@ -679,12 +679,12 @@ class CliTests(unittest.TestCase):
                 "monopack.cli.prewarm_shared_build_state",
                 return_value=sentinel_shared_state,
             ) as prewarm:
-                with mock.patch("monopack.cli.build_function", side_effect=_fake_build) as build:
+                with mock.patch("monopack.cli.build_pack", side_effect=_fake_build) as build:
                     with redirect_stdout(stdout), redirect_stderr(stderr):
                         result = cli.main(
                             [
-                                "--functions-dir",
-                                str(functions_dir),
+                                "--packs-dir",
+                                str(packs_dir),
                                 "--build-dir",
                                 str(build_dir),
                                 "--jobs",
@@ -704,11 +704,11 @@ class CliTests(unittest.TestCase):
         prewarm.assert_called_once()
         self.assertEqual(build.call_count, 2)
 
-    def test_resolve_jobs_uses_auto_default_based_on_function_count(self):
+    def test_resolve_jobs_uses_auto_default_based_on_pack_count(self):
         with mock.patch("os.cpu_count", return_value=12):
             jobs = cli._resolve_jobs(
                 "auto",
-                function_count=10,
+                pack_count=10,
                 auto_fix=False,
                 has_target=False,
             )
@@ -720,7 +720,7 @@ class CliTests(unittest.TestCase):
         with redirect_stderr(stderr):
             jobs = cli._resolve_jobs(
                 "6",
-                function_count=6,
+                pack_count=6,
                 auto_fix=True,
                 has_target=False,
             )

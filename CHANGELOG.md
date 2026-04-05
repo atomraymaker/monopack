@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.0
+
+- Breaking rename: switched entrypoint terminology and structure from `functions` to `packs` across CLI flags, env vars, runtime module imports, docs, and fixtures.
+- Renamed core APIs to pack-oriented names (`build_pack`, `discover_packs`, `resolve_pack_entrypoint`, `validate_pack_name`).
+- Updated defaults to `packs/` and removed old `functions` naming from current usage.
+
 ## 0.2.1
 
 - Removed hard-coded first-party roots (`functions`, `app`, `lib`) in favor of local import resolution under project root.

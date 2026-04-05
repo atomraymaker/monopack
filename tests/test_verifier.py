@@ -13,16 +13,16 @@ from monopack.verifier import run_unittest_discovery, verifier_script_source
 class VerifierTests(unittest.TestCase):
     def test_verifier_script_source_imports_selected_modules_then_handler(self):
         script = verifier_script_source(
-            function_name="users_get",
-            selected_modules={"app.users.service", "functions.users_get", "app.shared.auth"},
+            pack_name="users_get",
+            selected_modules={"app.users.service", "packs.users_get", "app.shared.auth"},
         )
 
         self.assertEqual(
             script,
             "import app.shared.auth\n"
             "import app.users.service\n"
-            "import functions.users_get\n"
-            "import functions.users_get as target\n"
+            "import packs.users_get\n"
+            "import packs.users_get as target\n"
             "assert hasattr(target, 'lambda_handler'), 'lambda_handler is missing'\n",
         )
 

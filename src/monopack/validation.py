@@ -4,11 +4,11 @@ import re
 from pathlib import Path
 
 
-_FUNCTION_NAME_RE = re.compile(r"^[a-zA-Z0-9_]+$")
+_PACK_NAME_RE = re.compile(r"^[a-zA-Z0-9_]+$")
 
 
 def validate_cli_paths(
-    functions_dir: Path,
+    packs_dir: Path,
     build_dir: Path,
     project_root: Path,
     mode: str,
@@ -16,26 +16,26 @@ def validate_cli_paths(
 ) -> None:
     """Validate required directories/files and path safety constraints."""
 
-    if not functions_dir.exists():
+    if not packs_dir.exists():
         raise FileNotFoundError(
-            f"Functions directory does not exist: {functions_dir}"
+            f"Packs directory does not exist: {packs_dir}"
         )
-    if not functions_dir.is_dir():
+    if not packs_dir.is_dir():
         raise ValueError(
-            f"Functions directory is not a directory: {functions_dir}"
+            f"Packs directory is not a directory: {packs_dir}"
         )
 
-    resolved_functions_dir = functions_dir.resolve()
+    resolved_packs_dir = packs_dir.resolve()
     resolved_build_dir = build_dir.resolve()
-    if resolved_build_dir == resolved_functions_dir:
+    if resolved_build_dir == resolved_packs_dir:
         raise ValueError(
-            "Build directory must be different from functions directory "
-            f"(both are {functions_dir})"
+            "Build directory must be different from packs directory "
+            f"(both are {packs_dir})"
         )
-    if resolved_functions_dir in resolved_build_dir.parents:
+    if resolved_packs_dir in resolved_build_dir.parents:
         raise ValueError(
-            "Build directory must not be inside functions directory: "
-            f"build_dir={build_dir}, functions_dir={functions_dir}"
+            "Build directory must not be inside packs directory: "
+            f"build_dir={build_dir}, packs_dir={packs_dir}"
         )
 
     requirements_path = project_root / "requirements.txt"
@@ -77,19 +77,19 @@ def validate_cli_mode_options(
         )
 
 
-def validate_function_name(function_name: str, *, is_target: bool) -> None:
-    """Validate discovered or explicitly requested function names."""
+def validate_pack_name(pack_name: str, *, is_target: bool) -> None:
+    """Validate discovered or explicitly requested pack names."""
 
     if is_target and (
-        "/" in function_name or "\\" in function_name or "." in function_name
+        "/" in pack_name or "\\" in pack_name or "." in pack_name
     ):
         raise ValueError(
-            "Target function name must not contain path separators or dots; "
-            "use a bare function name like 'users_get'."
+            "Target pack name must not contain path separators or dots; "
+            "use a bare pack name like 'users_get'."
         )
 
-    if _FUNCTION_NAME_RE.fullmatch(function_name) is None:
+    if _PACK_NAME_RE.fullmatch(pack_name) is None:
         raise ValueError(
-            f"Invalid function name '{function_name}': only letters, numbers, "
+            f"Invalid pack name '{pack_name}': only letters, numbers, "
             "and underscores are allowed."
         )

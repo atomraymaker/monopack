@@ -7,19 +7,19 @@ import zipfile
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from monopack.build import build_function
+from monopack.build import build_pack
 from monopack.cli import main as cli_main
 from monopack.inline_config import parse_inline_config
 from helpers import assert_files_exist, assert_paths_not_exist, fixture_project, run_cli_captured
 
 
 class BuildIntegrationTests(unittest.TestCase):
-    def test_build_function_creates_expected_files(self):
+    def test_build_pack_creates_expected_files(self):
         with fixture_project("simple") as project_root:
 
-            build_target = build_function(
-                function_name="users_get",
-                functions_dir=project_root / "functions",
+            build_target = build_pack(
+                pack_name="users_get",
+                packs_dir=project_root / "packs",
                 build_dir=project_root / "build",
                 project_root=project_root,
                 verify=True,
@@ -30,7 +30,7 @@ class BuildIntegrationTests(unittest.TestCase):
                 self,
                 build_target,
                 [
-                    "functions/users_get.py",
+                    "packs/users_get.py",
                     "_monopack_verify.py",
                 ],
             )
@@ -41,16 +41,16 @@ class BuildIntegrationTests(unittest.TestCase):
             self.assertRegex(package_sha_path.read_text(encoding="utf-8"), r"^[0-9a-f]{64}\n$")
             with zipfile.ZipFile(artifact_path) as archive:
                 names = archive.namelist()
-                self.assertIn("functions/users_get.py", names)
+                self.assertIn("packs/users_get.py", names)
                 self.assertNotIn("requirements.txt", names)
                 self.assertFalse(any(name.startswith("build/") for name in names))
 
-    def test_build_function_writes_b64_package_sha_when_requested(self):
+    def test_build_pack_writes_b64_package_sha_when_requested(self):
         with fixture_project("simple") as project_root:
 
-            build_target = build_function(
-                function_name="users_get",
-                functions_dir=project_root / "functions",
+            build_target = build_pack(
+                pack_name="users_get",
+                packs_dir=project_root / "packs",
                 build_dir=project_root / "build",
                 project_root=project_root,
                 verify=True,
@@ -69,8 +69,8 @@ class BuildIntegrationTests(unittest.TestCase):
                 cli_main,
                 [
                     "users_get",
-                    "--functions-dir",
-                    str(project_root / "functions"),
+                    "--packs-dir",
+                    str(project_root / "packs"),
                     "--build-dir",
                     str(project_root / "build"),
                     "--verify",
@@ -83,7 +83,7 @@ class BuildIntegrationTests(unittest.TestCase):
                 self,
                 build_target,
                 [
-                    "functions/users_get.py",
+                    "packs/users_get.py",
                     "_monopack_verify.py",
                 ],
             )
@@ -91,17 +91,17 @@ class BuildIntegrationTests(unittest.TestCase):
             self.assertTrue(artifact_path.is_file())
             with zipfile.ZipFile(artifact_path) as archive:
                 names = archive.namelist()
-                self.assertIn("functions/users_get.py", names)
+                self.assertIn("packs/users_get.py", names)
                 self.assertNotIn("requirements.txt", names)
                 self.assertFalse(any(name.startswith("build/") for name in names))
             self.assertEqual(stderr, "")
 
-    def test_build_function_test_mode_does_not_create_zip(self):
+    def test_build_pack_test_mode_does_not_create_zip(self):
         with fixture_project("test_mode") as project_root:
             with mock.patch("monopack.build._pip_install_target"):
-                build_function(
-                    function_name="users_get",
-                    functions_dir=project_root / "functions",
+                build_pack(
+                    pack_name="users_get",
+                    packs_dir=project_root / "packs",
                     build_dir=project_root / "build",
                     project_root=project_root,
                     verify=False,
@@ -110,20 +110,20 @@ class BuildIntegrationTests(unittest.TestCase):
 
             self.assertFalse((project_root / "build" / "users_get.zip").exists())
 
-    def test_build_function_copies_reachable_first_party_modules(self):
+    def test_build_pack_copies_reachable_first_party_modules(self):
         with fixture_project("shared_code") as project_root:
 
-            build_target = build_function(
-                function_name="users_get",
-                functions_dir=project_root / "functions",
+            build_target = build_pack(
+                pack_name="users_get",
+                packs_dir=project_root / "packs",
                 build_dir=project_root / "build",
                 project_root=project_root,
                 verify=True,
             )
 
             expected_paths = [
-                "functions/__init__.py",
-                "functions/users_get.py",
+                "packs/__init__.py",
+                "packs/users_get.py",
                 "app/__init__.py",
                 "app/users/__init__.py",
                 "app/users/service.py",
@@ -134,13 +134,13 @@ class BuildIntegrationTests(unittest.TestCase):
 
             assert_files_exist(self, build_target, expected_paths)
 
-    def test_build_function_triggers_pip_install_for_third_party_requirements(self):
+    def test_build_pack_triggers_pip_install_for_third_party_requirements(self):
         with fixture_project("third_party") as project_root:
 
             with mock.patch("monopack.build._pip_install_target") as pip_install:
-                build_target = build_function(
-                    function_name="users_get",
-                    functions_dir=project_root / "functions",
+                build_target = build_pack(
+                    pack_name="users_get",
+                    packs_dir=project_root / "packs",
                     build_dir=project_root / "build",
                     project_root=project_root,
                     verify=False,
@@ -150,7 +150,7 @@ class BuildIntegrationTests(unittest.TestCase):
                 self,
                 build_target,
                 [
-                    "functions/users_get.py",
+                    "packs/users_get.py",
                     "requirements.txt",
                     "_monopack_verify.py",
                 ],
@@ -166,20 +166,20 @@ class BuildIntegrationTests(unittest.TestCase):
                 no_index=True,
             )
 
-    def test_build_function_copies_modules_discovered_via_relative_imports(self):
+    def test_build_pack_copies_modules_discovered_via_relative_imports(self):
         with fixture_project("relative_imports") as project_root:
 
-            build_target = build_function(
-                function_name="users_get",
-                functions_dir=project_root / "functions",
+            build_target = build_pack(
+                pack_name="users_get",
+                packs_dir=project_root / "packs",
                 build_dir=project_root / "build",
                 project_root=project_root,
                 verify=True,
             )
 
             expected_paths = [
-                "functions/__init__.py",
-                "functions/users_get.py",
+                "packs/__init__.py",
+                "packs/users_get.py",
                 "app/__init__.py",
                 "app/handlers/__init__.py",
                 "app/handlers/user_handler.py",
@@ -194,12 +194,12 @@ class BuildIntegrationTests(unittest.TestCase):
 
             assert_files_exist(self, build_target, expected_paths)
 
-    def test_build_function_handles_first_party_cycles(self):
+    def test_build_pack_handles_first_party_cycles(self):
         with fixture_project("cycles") as project_root:
 
-            build_target = build_function(
-                function_name="users_get",
-                functions_dir=project_root / "functions",
+            build_target = build_pack(
+                pack_name="users_get",
+                packs_dir=project_root / "packs",
                 build_dir=project_root / "build",
                 project_root=project_root,
                 verify=True,
@@ -207,12 +207,12 @@ class BuildIntegrationTests(unittest.TestCase):
 
             assert_files_exist(self, build_target, ["app/cycle/alpha.py", "app/cycle/beta.py"])
 
-    def test_build_function_resolves_submodule_from_from_import(self):
+    def test_build_pack_resolves_submodule_from_from_import(self):
         with fixture_project("from_import_submodule") as project_root:
 
-            build_target = build_function(
-                function_name="users_get",
-                functions_dir=project_root / "functions",
+            build_target = build_pack(
+                pack_name="users_get",
+                packs_dir=project_root / "packs",
                 build_dir=project_root / "build",
                 project_root=project_root,
                 verify=True,
@@ -222,19 +222,19 @@ class BuildIntegrationTests(unittest.TestCase):
                 self,
                 build_target,
                 [
-                    "functions/users_get.py",
+                    "packs/users_get.py",
                     "app/users/service.py",
                     "app/shared/auth.py",
                     "_monopack_verify.py",
                 ],
             )
 
-    def test_build_function_ignores_type_checking_imports_for_graph_and_requirements(self):
+    def test_build_pack_ignores_type_checking_imports_for_graph_and_requirements(self):
         with fixture_project("type_checking_imports") as project_root:
 
-            build_target = build_function(
-                function_name="users_get",
-                functions_dir=project_root / "functions",
+            build_target = build_pack(
+                pack_name="users_get",
+                packs_dir=project_root / "packs",
                 build_dir=project_root / "build",
                 project_root=project_root,
                 verify=True,
@@ -244,7 +244,7 @@ class BuildIntegrationTests(unittest.TestCase):
                 self,
                 build_target,
                 [
-                    "functions/users_get.py",
+                    "packs/users_get.py",
                     "app/users/service.py",
                     "_monopack_verify.py",
                 ],
@@ -252,13 +252,13 @@ class BuildIntegrationTests(unittest.TestCase):
             assert_paths_not_exist(self, build_target, ["app/shared/schema.py"])
             self.assertFalse((build_target / "requirements.txt").exists())
 
-    def test_build_function_includes_transitive_third_party_requirements(self):
+    def test_build_pack_includes_transitive_third_party_requirements(self):
         with fixture_project("transitive_deps") as project_root:
 
             with mock.patch("monopack.build._pip_install_target"):
-                build_target = build_function(
-                    function_name="users_get",
-                    functions_dir=project_root / "functions",
+                build_target = build_pack(
+                    pack_name="users_get",
+                    packs_dir=project_root / "packs",
                     build_dir=project_root / "build",
                     project_root=project_root,
                     verify=False,
@@ -273,9 +273,9 @@ class BuildIntegrationTests(unittest.TestCase):
         with fixture_project("test_mode") as project_root:
 
             with mock.patch("monopack.build._pip_install_target"):
-                build_target = build_function(
-                    function_name="users_get",
-                    functions_dir=project_root / "functions",
+                build_target = build_pack(
+                    pack_name="users_get",
+                    packs_dir=project_root / "packs",
                     build_dir=project_root / "build",
                     project_root=project_root,
                     verify=False,
@@ -288,9 +288,9 @@ class BuildIntegrationTests(unittest.TestCase):
         with fixture_project("test_mode") as project_root:
 
             with mock.patch("monopack.build._pip_install_target"):
-                build_target = build_function(
-                    function_name="users_get",
-                    functions_dir=project_root / "functions",
+                build_target = build_pack(
+                    pack_name="users_get",
+                    packs_dir=project_root / "packs",
                     build_dir=project_root / "build",
                     project_root=project_root,
                     verify=False,
@@ -303,9 +303,9 @@ class BuildIntegrationTests(unittest.TestCase):
         with fixture_project("test_mode") as project_root:
 
             with mock.patch("monopack.build._pip_install_target"):
-                build_target = build_function(
-                    function_name="users_get",
-                    functions_dir=project_root / "functions",
+                build_target = build_pack(
+                    pack_name="users_get",
+                    packs_dir=project_root / "packs",
                     build_dir=project_root / "build",
                     project_root=project_root,
                     verify=False,
@@ -325,9 +325,9 @@ class BuildIntegrationTests(unittest.TestCase):
             ) as run_verifier, mock.patch(
                 "monopack.build.run_unittest_discovery"
             ) as run_unittests:
-                build_target = build_function(
-                    function_name="users_get",
-                    functions_dir=project_root / "functions",
+                build_target = build_pack(
+                    pack_name="users_get",
+                    packs_dir=project_root / "packs",
                     build_dir=project_root / "build",
                     project_root=project_root,
                     verify=True,
@@ -341,11 +341,11 @@ class BuildIntegrationTests(unittest.TestCase):
         with fixture_project("kitchen_sink") as project_root:
             with self.assertRaisesRegex(
                 RuntimeError,
-                r"No relevant tests were copied for function 'reports_refresh'",
+                r"No relevant tests were copied for pack 'reports_refresh'",
             ):
-                build_function(
-                    function_name="reports_refresh",
-                    functions_dir=project_root / "functions",
+                build_pack(
+                    pack_name="reports_refresh",
+                    packs_dir=project_root / "packs",
                     build_dir=project_root / "build",
                     project_root=project_root,
                     verify=False,
@@ -355,9 +355,9 @@ class BuildIntegrationTests(unittest.TestCase):
     def test_test_mode_passes_when_relevant_tests_exist(self):
         with fixture_project("kitchen_sink") as project_root:
             with mock.patch("monopack.build._pip_install_target"):
-                build_target = build_function(
-                    function_name="users_get",
-                    functions_dir=project_root / "functions",
+                build_target = build_pack(
+                    pack_name="users_get",
+                    packs_dir=project_root / "packs",
                     build_dir=project_root / "build",
                     project_root=project_root,
                     verify=False,
@@ -373,9 +373,9 @@ class BuildIntegrationTests(unittest.TestCase):
             ) as run_verifier, mock.patch(
                 "monopack.build.run_unittest_discovery"
             ) as run_unittests:
-                build_target = build_function(
-                    function_name="users_get",
-                    functions_dir=project_root / "functions",
+                build_target = build_pack(
+                    pack_name="users_get",
+                    packs_dir=project_root / "packs",
                     build_dir=project_root / "build",
                     project_root=project_root,
                     verify=True,
@@ -391,15 +391,15 @@ class BuildIntegrationTests(unittest.TestCase):
             with zipfile.ZipFile(artifact_path) as archive:
                 names = archive.namelist()
                 self.assertNotIn("tests/test_users.py", names)
-                self.assertIn("functions/users_get.py", names)
+                self.assertIn("packs/users_get.py", names)
 
     def test_test_mode_monorepo_split_users_includes_only_users_tests(self):
         with fixture_project("monorepo_split") as project_root:
 
             with mock.patch("monopack.build._pip_install_target"):
-                build_target = build_function(
-                    function_name="users_get",
-                    functions_dir=project_root / "functions",
+                build_target = build_pack(
+                    pack_name="users_get",
+                    packs_dir=project_root / "packs",
                     build_dir=project_root / "build",
                     project_root=project_root,
                     verify=False,
@@ -428,9 +428,9 @@ class BuildIntegrationTests(unittest.TestCase):
         with fixture_project("monorepo_split") as project_root:
 
             with mock.patch("monopack.build._pip_install_target"):
-                build_target = build_function(
-                    function_name="billing_charge",
-                    functions_dir=project_root / "functions",
+                build_target = build_pack(
+                    pack_name="billing_charge",
+                    packs_dir=project_root / "packs",
                     build_dir=project_root / "build",
                     project_root=project_root,
                     verify=False,
@@ -459,18 +459,18 @@ class BuildIntegrationTests(unittest.TestCase):
         with fixture_project("monorepo_split") as project_root:
 
             with mock.patch("monopack.build._pip_install_target"):
-                users_build_target = build_function(
-                    function_name="users_get",
-                    functions_dir=project_root / "functions",
+                users_build_target = build_pack(
+                    pack_name="users_get",
+                    packs_dir=project_root / "packs",
                     build_dir=project_root / "build",
                     project_root=project_root,
                     verify=False,
                     mode="test",
                 )
 
-                billing_build_target = build_function(
-                    function_name="billing_charge",
-                    functions_dir=project_root / "functions",
+                billing_build_target = build_pack(
+                    pack_name="billing_charge",
+                    packs_dir=project_root / "packs",
                     build_dir=project_root / "build",
                     project_root=project_root,
                     verify=False,
@@ -486,13 +486,13 @@ class BuildIntegrationTests(unittest.TestCase):
                 "idna==3.10\n",
             )
 
-    def test_build_function_applies_inline_config_overrides(self):
+    def test_build_pack_applies_inline_config_overrides(self):
         with fixture_project("config_overrides") as project_root:
 
             with mock.patch("monopack.build._pip_install_target"):
-                build_target = build_function(
-                    function_name="users_get",
-                    functions_dir=project_root / "functions",
+                build_target = build_pack(
+                    pack_name="users_get",
+                    packs_dir=project_root / "packs",
                     build_dir=project_root / "build",
                     project_root=project_root,
                     verify=False,
@@ -504,9 +504,9 @@ class BuildIntegrationTests(unittest.TestCase):
                 "PyYAML==6.0.2\n",
             )
 
-    def test_build_function_resolves_literal_dynamic_imports_without_auto_fix(self):
+    def test_build_pack_resolves_literal_dynamic_imports_without_auto_fix(self):
         with fixture_project("dynamic_literal_imports") as project_root:
-            entrypoint = project_root / "functions" / "users_get.py"
+            entrypoint = project_root / "packs" / "users_get.py"
             original_source = entrypoint.read_text(encoding="utf-8")
 
             def fake_pip_install(build_target: Path, requirements_path: Path, **_kwargs) -> None:
@@ -517,9 +517,9 @@ class BuildIntegrationTests(unittest.TestCase):
                 (build_target / "idna.py").write_text("__version__ = '3.10'\n", encoding="utf-8")
 
             with mock.patch("monopack.build._pip_install_target", side_effect=fake_pip_install) as pip_install:
-                build_target = build_function(
-                    function_name="users_get",
-                    functions_dir=project_root / "functions",
+                build_target = build_pack(
+                    pack_name="users_get",
+                    packs_dir=project_root / "packs",
                     build_dir=project_root / "build",
                     project_root=project_root,
                     verify=True,
@@ -529,7 +529,7 @@ class BuildIntegrationTests(unittest.TestCase):
                 self,
                 build_target,
                 [
-                    "functions/users_get.py",
+                    "packs/users_get.py",
                     "app/hidden/runtime_dep.py",
                     "idna.py",
                     "_monopack_verify.py",
@@ -543,13 +543,13 @@ class BuildIntegrationTests(unittest.TestCase):
             self.assertEqual(entrypoint.read_text(encoding="utf-8"), original_source)
             pip_install.assert_called_once()
 
-    def test_build_function_auto_fix_first_party_updates_entrypoint_and_succeeds(self):
+    def test_build_pack_auto_fix_first_party_updates_entrypoint_and_succeeds(self):
         with fixture_project("auto_fix_first_party") as project_root:
-            entrypoint = project_root / "functions" / "users_get.py"
+            entrypoint = project_root / "packs" / "users_get.py"
 
-            build_target = build_function(
-                function_name="users_get",
-                functions_dir=project_root / "functions",
+            build_target = build_pack(
+                pack_name="users_get",
+                packs_dir=project_root / "packs",
                 build_dir=project_root / "build",
                 project_root=project_root,
                 verify=True,
@@ -562,9 +562,9 @@ class BuildIntegrationTests(unittest.TestCase):
             self.assertIn("# monopack-start\n", rewritten)
             self.assertIn("# extra_modules: app.hidden.runtime_dep\n", rewritten)
 
-    def test_build_function_auto_fix_handles_missing_module_from_tests(self):
+    def test_build_pack_auto_fix_handles_missing_module_from_tests(self):
         with fixture_project("kitchen_sink") as project_root:
-            entrypoint = project_root / "functions" / "users_get.py"
+            entrypoint = project_root / "packs" / "users_get.py"
             (project_root / "app" / "hidden").mkdir(parents=True, exist_ok=True)
             (project_root / "app" / "hidden" / "__init__.py").write_text("", encoding="utf-8")
             (project_root / "app" / "hidden" / "runtime_dep.py").write_text(
@@ -582,9 +582,9 @@ class BuildIntegrationTests(unittest.TestCase):
                 "monopack.build.run_unittest_discovery",
                 side_effect=[test_failure, None],
             ) as run_unittests, mock.patch("monopack.build._pip_install_target"):
-                build_function(
-                    function_name="users_get",
-                    functions_dir=project_root / "functions",
+                build_pack(
+                    pack_name="users_get",
+                    packs_dir=project_root / "packs",
                     build_dir=project_root / "build",
                     project_root=project_root,
                     verify=True,
@@ -598,9 +598,9 @@ class BuildIntegrationTests(unittest.TestCase):
             self.assertIn("app.hidden.runtime_dep", parsed.extra_modules)
             self.assertEqual(run_unittests.call_count, 2)
 
-    def test_build_function_auto_fix_third_party_adds_distribution_and_requirements(self):
+    def test_build_pack_auto_fix_third_party_adds_distribution_and_requirements(self):
         with fixture_project("auto_fix_third_party") as project_root:
-            entrypoint = project_root / "functions" / "users_get.py"
+            entrypoint = project_root / "packs" / "users_get.py"
 
             def fake_pip_install(build_target: Path, requirements_path: Path, **_kwargs) -> None:
                 self.assertEqual(
@@ -613,9 +613,9 @@ class BuildIntegrationTests(unittest.TestCase):
                 )
 
             with mock.patch("monopack.build._pip_install_target", side_effect=fake_pip_install) as pip_install:
-                build_target = build_function(
-                    function_name="users_get",
-                    functions_dir=project_root / "functions",
+                build_target = build_pack(
+                    pack_name="users_get",
+                    packs_dir=project_root / "packs",
                     build_dir=project_root / "build",
                     project_root=project_root,
                     verify=True,
@@ -632,9 +632,9 @@ class BuildIntegrationTests(unittest.TestCase):
             self.assertIn("requests", {name.lower() for name in parsed.extra_distributions})
             pip_install.assert_called_once()
 
-    def test_build_function_auto_fix_distribution_aliases_use_mapped_names(self):
+    def test_build_pack_auto_fix_distribution_aliases_use_mapped_names(self):
         with fixture_project("distribution_aliases") as project_root:
-            entrypoint = project_root / "functions" / "users_get.py"
+            entrypoint = project_root / "packs" / "users_get.py"
 
             def fake_pip_install(build_target: Path, requirements_path: Path, **_kwargs) -> None:
                 requirements_text = requirements_path.read_text(encoding="utf-8")
@@ -676,9 +676,9 @@ class BuildIntegrationTests(unittest.TestCase):
                     None,
                 ],
             ) as pip_install:
-                build_target = build_function(
-                    function_name="users_get",
-                    functions_dir=project_root / "functions",
+                build_target = build_pack(
+                    pack_name="users_get",
+                    packs_dir=project_root / "packs",
                     build_dir=project_root / "build",
                     project_root=project_root,
                     verify=True,
@@ -698,9 +698,9 @@ class BuildIntegrationTests(unittest.TestCase):
         with fixture_project("kitchen_sink") as project_root:
 
             with mock.patch("monopack.build._pip_install_target"):
-                build_target = build_function(
-                    function_name="users_get",
-                    functions_dir=project_root / "functions",
+                build_target = build_pack(
+                    pack_name="users_get",
+                    packs_dir=project_root / "packs",
                     build_dir=project_root / "build",
                     project_root=project_root,
                     verify=False,
@@ -729,9 +729,9 @@ class BuildIntegrationTests(unittest.TestCase):
         with fixture_project("kitchen_sink") as project_root:
 
             with mock.patch("monopack.build._pip_install_target"):
-                build_target = build_function(
-                    function_name="billing_charge",
-                    functions_dir=project_root / "functions",
+                build_target = build_pack(
+                    pack_name="billing_charge",
+                    packs_dir=project_root / "packs",
                     build_dir=project_root / "build",
                     project_root=project_root,
                     verify=False,
@@ -742,7 +742,7 @@ class BuildIntegrationTests(unittest.TestCase):
 
     def test_kitchen_sink_auto_fix_dynamic_import_updates_inline_block_and_succeeds(self):
         with fixture_project("kitchen_sink") as project_root:
-            entrypoint = project_root / "functions" / "reports_refresh.py"
+            entrypoint = project_root / "packs" / "reports_refresh.py"
 
             def fake_pip_install(build_target: Path, requirements_path: Path, **_kwargs) -> None:
                 requirements_text = requirements_path.read_text(encoding="utf-8")
@@ -750,9 +750,9 @@ class BuildIntegrationTests(unittest.TestCase):
                 (build_target / "idna.py").write_text("__version__ = '3.10'\n", encoding="utf-8")
 
             with mock.patch("monopack.build._pip_install_target", side_effect=fake_pip_install):
-                build_target = build_function(
-                    function_name="reports_refresh",
-                    functions_dir=project_root / "functions",
+                build_target = build_pack(
+                    pack_name="reports_refresh",
+                    packs_dir=project_root / "packs",
                     build_dir=project_root / "build",
                     project_root=project_root,
                     verify=True,
@@ -767,15 +767,15 @@ class BuildIntegrationTests(unittest.TestCase):
             self.assertIn("# monopack-start\n", rewritten)
             self.assertIn("idna", {name.lower() for name in parsed.extra_distributions})
 
-    def test_build_function_no_auto_fix_preserves_failure_and_entrypoint(self):
+    def test_build_pack_no_auto_fix_preserves_failure_and_entrypoint(self):
         with fixture_project("auto_fix_first_party") as project_root:
-            entrypoint = project_root / "functions" / "users_get.py"
+            entrypoint = project_root / "packs" / "users_get.py"
             original_source = entrypoint.read_text(encoding="utf-8")
 
             with self.assertRaisesRegex(RuntimeError, "Build verification failed"):
-                build_function(
-                    function_name="users_get",
-                    functions_dir=project_root / "functions",
+                build_pack(
+                    pack_name="users_get",
+                    packs_dir=project_root / "packs",
                     build_dir=project_root / "build",
                     project_root=project_root,
                     verify=True,
@@ -786,15 +786,15 @@ class BuildIntegrationTests(unittest.TestCase):
 
     def test_cli_auto_fix_off_by_default_keeps_failure_and_does_not_modify_entrypoint(self):
         with fixture_project("auto_fix_first_party") as project_root:
-            entrypoint = project_root / "functions" / "users_get.py"
+            entrypoint = project_root / "packs" / "users_get.py"
             original_source = entrypoint.read_text(encoding="utf-8")
 
             result, stdout, stderr = run_cli_captured(
                 cli_main,
                 [
                     "users_get",
-                    "--functions-dir",
-                    str(project_root / "functions"),
+                    "--packs-dir",
+                    str(project_root / "packs"),
                     "--build-dir",
                     str(project_root / "build"),
                     "--verify",

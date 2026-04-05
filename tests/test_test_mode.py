@@ -53,14 +53,14 @@ class TestModeHelpersTests(unittest.TestCase):
         fixture_root = Path(__file__).resolve().parent / "fixtures" / "monorepo_split"
 
         files = {
-            fixture_root / "functions" / "users_get.py",
+            fixture_root / "packs" / "users_get.py",
             fixture_root / "app" / "users" / "service.py",
             fixture_root / "tests" / "users" / "test_users_get.py",
         }
 
         names = module_names_from_files(files, fixture_root)
 
-        self.assertEqual(names, {"functions.users_get", "app.users.service"})
+        self.assertEqual(names, {"packs.users_get", "app.users.service"})
 
     def test_test_file_is_relevant_supports_parent_and_child_module_relations(self):
         with tempfile.TemporaryDirectory() as tmpdir:

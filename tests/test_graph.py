@@ -59,8 +59,8 @@ class GraphTests(unittest.TestCase):
             shutil.copytree(fixture_root, project_root)
 
             files_to_copy, third_party_roots = collect_reachable_first_party_files(
-                entrypoint_module="functions.users_get",
-                entrypoint_file=project_root / "functions" / "users_get.py",
+                entrypoint_module="packs.users_get",
+                entrypoint_file=project_root / "packs" / "users_get.py",
                 project_root=project_root,
             )
 
@@ -72,8 +72,8 @@ class GraphTests(unittest.TestCase):
         self.assertEqual(
             relative_paths,
             {
-                "functions/__init__.py",
-                "functions/users_get.py",
+                "packs/__init__.py",
+                "packs/users_get.py",
                 "app/__init__.py",
                 "app/users/__init__.py",
                 "app/users/service.py",
@@ -86,7 +86,7 @@ class GraphTests(unittest.TestCase):
     def test_collect_reachable_first_party_files_unions_third_party_roots(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             project_root = Path(tmpdir)
-            entrypoint = project_root / "functions" / "users_get.py"
+            entrypoint = project_root / "packs" / "users_get.py"
             app_module = project_root / "app" / "users" / "service.py"
             shared_module = project_root / "app" / "shared" / "auth.py"
 
@@ -102,7 +102,7 @@ class GraphTests(unittest.TestCase):
             shared_module.write_text("import boto3\n", encoding="utf-8")
 
             files_to_copy, third_party_roots = collect_reachable_first_party_files(
-                entrypoint_module="functions.users_get",
+                entrypoint_module="packs.users_get",
                 entrypoint_file=entrypoint,
                 project_root=project_root,
             )
@@ -112,7 +112,7 @@ class GraphTests(unittest.TestCase):
                 for path in files_to_copy
             }
 
-        self.assertIn("functions/users_get.py", relative_paths)
+        self.assertIn("packs/users_get.py", relative_paths)
         self.assertIn("app/users/service.py", relative_paths)
         self.assertIn("app/shared/auth.py", relative_paths)
         self.assertEqual(third_party_roots, {"requests", "boto3"})
@@ -125,8 +125,8 @@ class GraphTests(unittest.TestCase):
             shutil.copytree(fixture_root, project_root)
 
             files_to_copy, third_party_roots = collect_reachable_first_party_files(
-                entrypoint_module="functions.users_get",
-                entrypoint_file=project_root / "functions" / "users_get.py",
+                entrypoint_module="packs.users_get",
+                entrypoint_file=project_root / "packs" / "users_get.py",
                 project_root=project_root,
             )
 
@@ -138,8 +138,8 @@ class GraphTests(unittest.TestCase):
         self.assertEqual(
             relative_paths,
             {
-                "functions/__init__.py",
-                "functions/users_get.py",
+                "packs/__init__.py",
+                "packs/users_get.py",
                 "app/__init__.py",
                 "app/handlers/__init__.py",
                 "app/handlers/user_handler.py",
@@ -156,7 +156,7 @@ class GraphTests(unittest.TestCase):
     def test_collect_reachable_first_party_files_includes_existing_extra_modules(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             project_root = Path(tmpdir)
-            entrypoint = project_root / "functions" / "users_get.py"
+            entrypoint = project_root / "packs" / "users_get.py"
             extra_module = project_root / "app" / "hidden" / "runtime_dep.py"
 
             entrypoint.parent.mkdir(parents=True)
@@ -169,7 +169,7 @@ class GraphTests(unittest.TestCase):
             extra_module.write_text("VALUE = 'ok'\n", encoding="utf-8")
 
             files_to_copy, _ = collect_reachable_first_party_files(
-                entrypoint_module="functions.users_get",
+                entrypoint_module="packs.users_get",
                 entrypoint_file=entrypoint,
                 project_root=project_root,
                 extra_modules={"app.hidden.runtime_dep", "app.missing.nope", "requests"},
@@ -180,7 +180,7 @@ class GraphTests(unittest.TestCase):
                 for path in files_to_copy
             }
 
-        self.assertIn("functions/users_get.py", relative_paths)
+        self.assertIn("packs/users_get.py", relative_paths)
         self.assertIn("app/hidden/runtime_dep.py", relative_paths)
 
     def test_collect_reachable_first_party_files_uses_precomputed_cache(self):
@@ -199,8 +199,8 @@ class GraphTests(unittest.TestCase):
                 side_effect=AssertionError("imports should come from cache"),
             ):
                 files_to_copy, third_party_roots = collect_reachable_first_party_files(
-                    entrypoint_module="functions.users_get",
-                    entrypoint_file=project_root / "functions" / "users_get.py",
+                    entrypoint_module="packs.users_get",
+                    entrypoint_file=project_root / "packs" / "users_get.py",
                     project_root=project_root,
                     analysis_cache=cache,
                 )
@@ -210,14 +210,14 @@ class GraphTests(unittest.TestCase):
                 for path in files_to_copy
             }
 
-        self.assertIn("functions/users_get.py", relative_paths)
+        self.assertIn("packs/users_get.py", relative_paths)
         self.assertIn("app/users/service.py", relative_paths)
         self.assertEqual(third_party_roots, set())
 
     def test_collect_reachable_first_party_files_includes_project_root_siblings(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             project_root = Path(tmpdir)
-            entrypoint = project_root / "functions" / "users_get.py"
+            entrypoint = project_root / "packs" / "users_get.py"
             shared_utils = project_root / "shared" / "utils.py"
 
             entrypoint.parent.mkdir(parents=True)
@@ -233,7 +233,7 @@ class GraphTests(unittest.TestCase):
             )
 
             files_to_copy, third_party_roots = collect_reachable_first_party_files(
-                entrypoint_module="functions.users_get",
+                entrypoint_module="packs.users_get",
                 entrypoint_file=entrypoint,
                 project_root=project_root,
             )
@@ -243,7 +243,7 @@ class GraphTests(unittest.TestCase):
                 for path in files_to_copy
             }
 
-        self.assertIn("functions/users_get.py", relative_paths)
+        self.assertIn("packs/users_get.py", relative_paths)
         self.assertIn("shared/utils.py", relative_paths)
         self.assertEqual(third_party_roots, set())
 

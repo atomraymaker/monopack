@@ -3,16 +3,16 @@ import sys
 from pathlib import Path
 
 
-def verifier_script_source(function_name: str, selected_modules: set[str]) -> str:
+def verifier_script_source(pack_name: str, selected_modules: set[str]) -> str:
     imports = [f"import {module}" for module in sorted(selected_modules)]
-    imports.append(f"import functions.{function_name} as target")
+    imports.append(f"import packs.{pack_name} as target")
     imports.append("assert hasattr(target, 'lambda_handler'), 'lambda_handler is missing'")
     return "\n".join(imports) + "\n"
 
 
-def write_verifier_script(path: Path, function_name: str, selected_modules: set[str]) -> None:
+def write_verifier_script(path: Path, pack_name: str, selected_modules: set[str]) -> None:
     path.write_text(
-        verifier_script_source(function_name, selected_modules),
+        verifier_script_source(pack_name, selected_modules),
         encoding="utf-8",
     )
 

@@ -2,7 +2,7 @@ import unittest
 
 import colorama
 
-from functions.users_get import lambda_handler
+from packs.users_get import lambda_handler
 
 
 class UsersGetTests(unittest.TestCase):

@@ -18,8 +18,8 @@ class CliIntegrationTests(unittest.TestCase):
                 cli.main,
                 [
                     "users_get",
-                    "--functions-dir",
-                    str(project_root / "functions"),
+                    "--packs-dir",
+                    str(project_root / "packs"),
                     "--build-dir",
                     str(project_root / "build"),
                     "--no-verify",
@@ -77,8 +77,8 @@ class CliIntegrationTests(unittest.TestCase):
                             cli.main,
                             [
                                 "users_get",
-                                "--functions-dir",
-                                str(project_root / "functions"),
+                                "--packs-dir",
+                                str(project_root / "packs"),
                                 "--build-dir",
                                 str(build_dir),
                                 "--mode",
@@ -119,8 +119,8 @@ class CliIntegrationTests(unittest.TestCase):
                     cli.main,
                     [
                         "billing_charge",
-                        "--functions-dir",
-                        str(project_root / "functions"),
+                        "--packs-dir",
+                        str(project_root / "packs"),
                         "--build-dir",
                         str(build_dir),
                         "--mode",
@@ -139,14 +139,14 @@ class CliIntegrationTests(unittest.TestCase):
     def test_auto_fix_first_party_runs_through_cli_and_rewrites_entrypoint(self):
         with fixture_project("auto_fix_first_party") as project_root:
             build_dir = project_root / "build"
-            entrypoint = project_root / "functions" / "users_get.py"
+            entrypoint = project_root / "packs" / "users_get.py"
 
             code, _, stderr = run_cli_captured(
                 cli.main,
                 [
                     "users_get",
-                    "--functions-dir",
-                    str(project_root / "functions"),
+                    "--packs-dir",
+                    str(project_root / "packs"),
                     "--build-dir",
                     str(build_dir),
                     "--verify",
@@ -166,7 +166,7 @@ class CliIntegrationTests(unittest.TestCase):
     def test_literal_dynamic_imports_resolve_without_auto_fix_through_cli(self):
         with fixture_project("dynamic_literal_imports") as project_root:
             build_dir = project_root / "build"
-            entrypoint = project_root / "functions" / "users_get.py"
+            entrypoint = project_root / "packs" / "users_get.py"
             original_source = entrypoint.read_text(encoding="utf-8")
 
             def fake_pip_install(build_target: Path, requirements_path: Path, **_kwargs) -> None:
@@ -181,8 +181,8 @@ class CliIntegrationTests(unittest.TestCase):
                     cli.main,
                     [
                         "users_get",
-                        "--functions-dir",
-                        str(project_root / "functions"),
+                        "--packs-dir",
+                        str(project_root / "packs"),
                         "--build-dir",
                         str(build_dir),
                         "--verify",
@@ -196,7 +196,7 @@ class CliIntegrationTests(unittest.TestCase):
                 self,
                 build_target,
                 [
-                    "functions/users_get.py",
+                    "packs/users_get.py",
                     "app/hidden/runtime_dep.py",
                     "idna.py",
                     "_monopack_verify.py",
@@ -216,8 +216,8 @@ class CliIntegrationTests(unittest.TestCase):
                 cli.main,
                 [
                     "users_get",
-                    "--functions-dir",
-                    str(project_root / "functions"),
+                    "--packs-dir",
+                    str(project_root / "packs"),
                     "--build-dir",
                     str(project_root / "build"),
                     "--mode",
@@ -241,8 +241,8 @@ class CliIntegrationTests(unittest.TestCase):
                     cli.main,
                     [
                         "users_get",
-                        "--functions-dir",
-                        str(project_root / "functions"),
+                        "--packs-dir",
+                        str(project_root / "packs"),
                         "--build-dir",
                         str(build_dir),
                         "--mode",
@@ -255,7 +255,7 @@ class CliIntegrationTests(unittest.TestCase):
             self.assertEqual(stderr, "")
             self.assertFalse((build_dir / "users_get.zip").exists())
 
-    def test_build_all_functions_writes_requested_sha_outputs(self):
+    def test_build_all_packs_writes_requested_sha_outputs(self):
         with fixture_project("kitchen_sink") as project_root:
             build_dir = project_root / "build"
 
@@ -263,8 +263,8 @@ class CliIntegrationTests(unittest.TestCase):
                 code, _, stderr = run_cli_captured(
                     cli.main,
                     [
-                        "--functions-dir",
-                        str(project_root / "functions"),
+                        "--packs-dir",
+                        str(project_root / "packs"),
                         "--build-dir",
                         str(build_dir),
                         "--mode",
@@ -277,11 +277,11 @@ class CliIntegrationTests(unittest.TestCase):
 
             self.assertEqual(code, 0)
             self.assertEqual(stderr, "")
-            for function_name in ("billing_charge", "users_get"):
-                self.assertTrue((build_dir / f"{function_name}.package.sha256").is_file())
-                self.assertTrue((build_dir / f"{function_name}.package.sha256.b64").is_file())
+            for pack_name in ("billing_charge", "users_get"):
+                self.assertTrue((build_dir / f"{pack_name}.package.sha256").is_file())
+                self.assertTrue((build_dir / f"{pack_name}.package.sha256.b64").is_file())
 
-    def test_build_all_functions_with_jobs_preserves_output_order(self):
+    def test_build_all_packs_with_jobs_preserves_output_order(self):
         with fixture_project("kitchen_sink") as project_root:
             build_dir = project_root / "build"
 
@@ -289,8 +289,8 @@ class CliIntegrationTests(unittest.TestCase):
                 code, stdout, stderr = run_cli_captured(
                     cli.main,
                     [
-                        "--functions-dir",
-                        str(project_root / "functions"),
+                        "--packs-dir",
+                        str(project_root / "packs"),
                         "--build-dir",
                         str(build_dir),
                         "--mode",

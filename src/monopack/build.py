@@ -1,4 +1,4 @@
-"""Core build pipeline for packaging and verifying function bundles."""
+"""Core build pipeline for packaging and verifying pack bundles."""
 
 import json
 import base64
@@ -13,7 +13,7 @@ from importlib.metadata import packages_distributions
 from pathlib import Path
 import zipfile
 
-from monopack.discovery import resolve_entrypoint
+from monopack.discovery import resolve_pack_entrypoint
 from monopack.graph import (
     FirstPartyAnalysisCache,
     build_first_party_analysis_cache,
@@ -55,7 +55,7 @@ _FIRST_PARTY_ANALYSIS_CACHE_LOCK = threading.Lock()
 
 @dataclass(frozen=True)
 class SharedBuildState:
-    """Reusable shared build artifacts for multi-function runs."""
+    """Reusable shared build artifacts for multi-pack runs."""
 
     lock_requirements_path: Path
     wheelhouse: Path
@@ -69,9 +69,9 @@ class VerificationFailedError(RuntimeError):
     pass
 
 
-def build_function(
-    function_name: str,
-    functions_dir: Path,
+def build_pack(
+    pack_name: str,
+    packs_dir: Path,
     build_dir: Path,
     project_root: Path,
     verify: bool = True,
@@ -83,10 +83,10 @@ def build_function(
     sha_outputs: set[str] | None = None,
     shared_state: SharedBuildState | None = None,
 ) -> Path:
-    """Build one function and optionally write deploy artifacts.
+    """Build one pack and optionally write deploy artifacts.
 
-    Returns the build target directory path (`<build_dir>/<function_name>`).
-    Deploy mode writes `<build_dir>/<function_name>.zip` plus package digest helper files.
+    Returns the build target directory path (`<build_dir>/<pack_name>`).
+    Deploy mode writes `<build_dir>/<pack_name>.zip` plus package digest helper files.
     Test mode does not write deploy artifacts.
     """
 
@@ -94,9 +94,9 @@ def build_function(
     normalized_sha_outputs = normalize_sha_outputs(sha_outputs)
     while True:
         try:
-            return _build_function_once(
-                function_name=function_name,
-                functions_dir=functions_dir,
+            return _build_pack_once(
+                pack_name=pack_name,
+                packs_dir=packs_dir,
                 build_dir=build_dir,
                 project_root=project_root,
                 verify=verify,
@@ -114,7 +114,7 @@ def build_function(
             if missing_module is None:
                 raise RuntimeError(str(exc)) from exc
 
-            entrypoint = resolve_entrypoint(functions_dir, function_name)
+            entrypoint = resolve_pack_entrypoint(packs_dir, pack_name)
             config = parse_inline_config(entrypoint.read_text(encoding="utf-8"))
             target_kind, target_value = choose_auto_fix_target(
                 missing_module=missing_module,
@@ -132,9 +132,9 @@ def build_function(
             retries += 1
 
 
-def _build_function_once(
-    function_name: str,
-    functions_dir: Path,
+def _build_pack_once(
+    pack_name: str,
+    packs_dir: Path,
     build_dir: Path,
     project_root: Path,
     verify: bool,
@@ -149,9 +149,9 @@ def _build_function_once(
     if mode not in {"deploy", "test"}:
         raise ValueError("mode must be either 'deploy' or 'test'")
 
-    entrypoint = resolve_entrypoint(functions_dir, function_name)
+    entrypoint = resolve_pack_entrypoint(packs_dir, pack_name)
     inline_config = parse_inline_config(entrypoint.read_text(encoding="utf-8"))
-    build_target = build_dir / function_name
+    build_target = build_dir / pack_name
     effective_shared_state = shared_state or prewarm_shared_build_state(
         project_root=project_root,
         build_dir=build_dir,
@@ -166,7 +166,7 @@ def _build_function_once(
     build_target.mkdir(parents=True)
 
     files_to_copy, third_party_roots = collect_reachable_first_party_files(
-        entrypoint_module=f"functions.{function_name}",
+        entrypoint_module=f"packs.{pack_name}",
         entrypoint_file=entrypoint,
         project_root=project_root,
         extra_modules=inline_config.extra_modules,
@@ -199,8 +199,8 @@ def _build_function_once(
         )
         if copied_tests_dir is None:
             raise RuntimeError(
-                "No relevant tests were copied for function "
-                f"'{function_name}'. Add tests that import the function's "
+                "No relevant tests were copied for pack "
+                f"'{pack_name}'. Add tests that import the pack's "
                 "runtime modules."
             )
         test_third_party_roots = collect_third_party_roots_from_tests(
@@ -219,15 +219,15 @@ def _build_function_once(
         requirements_path=requirements_path,
     )
     resolved_distributions.update(inline_config.extra_distributions)
-    per_function_requirements = filter_requirements_for_distributions(
+    per_pack_requirements = filter_requirements_for_distributions(
         parsed_requirements,
         resolved_distributions,
     )
 
     requirements_path = build_target / "requirements.txt"
-    if per_function_requirements:
+    if per_pack_requirements:
         requirements_path.write_text(
-            "\n".join(per_function_requirements) + "\n",
+            "\n".join(per_pack_requirements) + "\n",
             encoding="utf-8",
         )
         _pip_install_target(
@@ -238,7 +238,7 @@ def _build_function_once(
         )
 
     verifier_path = build_target / "_monopack_verify.py"
-    write_verifier_script(verifier_path, function_name, selected_modules)
+    write_verifier_script(verifier_path, pack_name, selected_modules)
 
     if verify:
         try:
@@ -256,7 +256,7 @@ def _build_function_once(
 
     if debug:
         report = build_debug_report(
-            function_name=function_name,
+            pack_name=pack_name,
             mode=mode,
             verify=verify,
             run_tests=run_tests,
@@ -266,7 +266,7 @@ def _build_function_once(
             copied_tests_dir=copied_tests_dir,
             parsed_requirements=parsed_requirements,
             package_map=package_map,
-            per_function_requirements=per_function_requirements,
+            per_pack_requirements=per_pack_requirements,
             project_root=project_root,
         )
         print(report, file=sys.stderr)
@@ -274,12 +274,12 @@ def _build_function_once(
     if mode == "deploy":
         write_package_sha_files(
             build_target=build_target,
-            output_prefix=build_dir / function_name,
+            output_prefix=build_dir / pack_name,
             sha_outputs=sha_outputs,
         )
         create_build_artifact_zip(
             build_target=build_target,
-            artifact_path=build_dir / f"{function_name}.zip",
+            artifact_path=build_dir / f"{pack_name}.zip",
         )
 
     return build_target
@@ -411,7 +411,7 @@ def persist_inline_config_fix(
     target_kind: str,
     target_value: str,
 ) -> InlineConfig:
-    """Apply and persist an inline-config auto-fix to a function entrypoint."""
+    """Apply and persist an inline-config auto-fix to a pack entrypoint."""
 
     if target_kind == "module":
         updated = InlineConfig(
@@ -734,7 +734,7 @@ def _run_checked(command: list[str], failure_message: str) -> subprocess.Complet
 
 def build_debug_report(
     *,
-    function_name: str,
+    pack_name: str,
     mode: str,
     verify: bool,
     run_tests: bool,
@@ -744,7 +744,7 @@ def build_debug_report(
     copied_tests_dir: Path | None,
     parsed_requirements: dict[str, str],
     package_map: dict[str, list[str]],
-    per_function_requirements: list[str],
+    per_pack_requirements: list[str],
     project_root: Path,
 ) -> str:
     import_roots = collect_import_roots(files_to_copy)
@@ -794,19 +794,19 @@ def build_debug_report(
         tests_count = len([path for path in copied_tests_dir.rglob("test*.py")])
 
     lines = [
-        f"[debug] Build report for '{function_name}'",
+        f"[debug] Build report for '{pack_name}'",
         f"  mode={mode} verify={verify} run_tests={run_tests}",
         f"  build_target={build_target}",
         f"  copied_first_party_files={len(files_to_copy)} selected_modules={len(selected_modules)}",
         "  import_roots="
         f"first_party:{len(first_party_imports)} stdlib:{len(stdlib_imports)} third_party:{len(third_party_imports)}",
         f"  copied_tests={tests_count}",
-        f"  selected_requirements={len(per_function_requirements)}",
+        f"  selected_requirements={len(per_pack_requirements)}",
     ]
 
-    if per_function_requirements:
+    if per_pack_requirements:
         lines.append("  requirements:")
-        lines.extend(f"    - {requirement}" for requirement in per_function_requirements)
+        lines.extend(f"    - {requirement}" for requirement in per_pack_requirements)
 
     if third_party_resolution_lines:
         lines.append("  third_party_resolution:")

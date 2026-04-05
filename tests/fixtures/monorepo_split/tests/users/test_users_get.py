@@ -1,7 +1,7 @@
 import unittest
 
 from app.users.service import get_user_payload
-from functions.users_get import lambda_handler
+from packs.users_get import lambda_handler
 import colorama
 
 
