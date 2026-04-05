@@ -28,7 +28,7 @@
 
 - CLI path validation requires:
   - existing `packs/` directory,
-  - project-level `requirements.txt` file,
+  - a resolvable dependency source (`requirements.txt`, `uv.lock`, `poetry.lock`/`pyproject.toml` with `[tool.poetry]`, or `Pipfile`/`Pipfile.lock`) unless `--package-manager` overrides detection,
   - `build_dir` different from and not nested under `packs_dir`,
   - `tests/` directory when `--mode test` is used.
 - Function naming rules:
@@ -36,7 +36,7 @@
   - discovered/pack names allow only letters, digits, and underscores.
 - Function discovery is shallow (`packs/*.py` only), excluding files prefixed with `_`.
 - Builder scope follows imports that resolve to local modules under the same project root as `packs/` (excluding `tests/`) plus optional `extra_modules` from inline config.
-- Requirements handling accepts only pinned `name==version` lines (comments/blank lines allowed); unsupported forms (`>=`, extras, `-r`, VCS URLs, editable installs) raise errors.
+- Source dependency files may be unpinned; cache sync installs from source and pins the effective lock via `pip freeze` before per-pack requirement filtering.
 - Verification behavior:
   - verifier imports selected modules + `packs.<name>` and asserts `lambda_handler` exists,
   - in test mode, relevant tests are copied by import relationship and executed with `python -m unittest discover -s tests -v` from the build target,

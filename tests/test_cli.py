@@ -37,6 +37,7 @@ class CliTests(unittest.TestCase):
         self.assertFalse(args.debug)
         self.assertEqual(args.jobs, "auto")
         self.assertEqual(args.sha_output, "hex")
+        self.assertEqual(args.package_manager, "auto")
 
     def test_parse_args_custom_values(self):
         with mock.patch.dict("os.environ", {}, clear=True):
@@ -57,6 +58,8 @@ class CliTests(unittest.TestCase):
                     "3",
                     "--sha-output",
                     "hex,b64",
+                    "--package-manager",
+                    "poetry",
                 ]
             )
 
@@ -70,6 +73,7 @@ class CliTests(unittest.TestCase):
         self.assertTrue(args.debug)
         self.assertEqual(args.jobs, "3")
         self.assertEqual(args.sha_output, "hex,b64")
+        self.assertEqual(args.package_manager, "poetry")
 
     def test_parse_args_version_flag(self):
         stdout = io.StringIO()
@@ -466,7 +470,7 @@ class CliTests(unittest.TestCase):
             stderr.getvalue(),
         )
 
-    def test_main_returns_error_when_requirements_missing(self):
+    def test_main_returns_error_when_dependency_source_missing(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             project_root = Path(tmpdir) / "project"
             packs_dir = project_root / "packs"
@@ -479,7 +483,32 @@ class CliTests(unittest.TestCase):
 
         self.assertEqual(result, 2)
         self.assertEqual(stdout.getvalue(), "")
-        self.assertIn("Missing required requirements file", stderr.getvalue())
+        self.assertIn("Could not auto-detect a package manager", stderr.getvalue())
+
+    def test_main_threads_package_manager_to_build_pack(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            project_root = Path(tmpdir) / "project"
+            packs_dir = project_root / "packs"
+            build_dir = project_root / "build"
+            packs_dir.mkdir(parents=True)
+            (packs_dir / "users_get.py").write_text("", encoding="utf-8")
+            (project_root / "uv.lock").write_text("", encoding="utf-8")
+
+            with mock.patch("monopack.cli.build_pack", return_value=build_dir / "users_get") as build:
+                result = cli.main(
+                    [
+                        "users_get",
+                        "--packs-dir",
+                        str(packs_dir),
+                        "--build-dir",
+                        str(build_dir),
+                        "--package-manager",
+                        "uv",
+                    ]
+                )
+
+        self.assertEqual(result, 0)
+        self.assertEqual(build.call_args.kwargs["package_manager"], "uv")
 
     def test_main_returns_error_for_invalid_discovered_pack_name(self):
         with tempfile.TemporaryDirectory() as tmpdir:

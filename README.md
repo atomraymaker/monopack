@@ -28,7 +28,7 @@ It is intentionally conservative: this is import-based trimming with guardrails,
 - In `deploy` mode, writes deploy zip artifacts at `build/<pack_name>.zip`.
 - In `deploy` mode, writes package digest helper file(s) (`build/<pack_name>.package.sha256` by default).
 - In `test` mode, copies relevant tests and runs them in the build target (no zip output).
-- Uses pinned project `requirements.txt` (`name==version` lines only).
+- Uses requirements exported from `pip`, `uv`, `poetry`, or `pipenv` (`--package-manager`, default `auto`) and normalizes to pinned lock state during cache sync.
 - Supports optional auto-fix for missing-module verification failures (`--auto-fix`, opt-in).
 
 ## Quickstart
@@ -36,7 +36,7 @@ It is intentionally conservative: this is import-based trimming with guardrails,
 Project expectations:
 
 - `packs/` directory with pack entrypoint files (`<name>.py`).
-- Project-level `requirements.txt` containing pinned `name==version` lines.
+- One dependency source signal in project root: `requirements.txt`, `uv.lock`, `poetry.lock`/`pyproject.toml` (`[tool.poetry]`), or `Pipfile`/`Pipfile.lock`.
 - Optional `tests/` directory when using `--mode test`.
 
 Build one pack in deploy mode:
@@ -82,6 +82,7 @@ Key flags for real-project usage:
 - `--debug`: emit aggregated import/dependency resolution report to stderr.
 - `--jobs`: parallel workers for multi-pack builds (`auto` default).
 - `--sha-output`: comma-separated package digest outputs for deploy mode (`hex`, `b64`; default `hex`).
+- `--package-manager`: dependency source manager (`auto`, `pip`, `uv`, `poetry`, `pipenv`; default `auto`).
 
 Package digest output guidance:
 
@@ -96,7 +97,7 @@ For full argument behavior and validation details, see `docs/cli.md`.
 - Function discovery is shallow: only `packs/*.py` (excluding names starting with `_`).
 - Pack names must use letters, numbers, and underscores; pack names cannot include `/`, `\\`, or `.`.
 - Build directory must differ from packs directory and cannot be nested inside it.
-- Requirements parser accepts only pinned `name==version` lines (comments and blanks allowed).
+- Project dependency inputs may be unpinned; `monopack` pins effective versions from cache sync (`pip freeze`) before per-pack requirement filtering.
 - First-party graph traversal follows imports that resolve to local modules under the same project root as `packs/` (excluding `tests/`).
 - Auto-fix only handles `ModuleNotFoundError` flows and retries up to 3 times when enabled.
 

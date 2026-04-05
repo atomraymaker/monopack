@@ -10,6 +10,7 @@ import zipfile
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from monopack.build import (
+    DEPENDENCY_LOCK_FILENAME,
     _pip_install_target,
     choose_auto_fix_target,
     create_build_artifact_zip,
@@ -17,8 +18,10 @@ from monopack.build import (
     normalize_sha_outputs,
     package_content_digest,
     parse_missing_module_from_traceback,
+    prepare_source_requirements,
     persist_inline_config_fix,
     resolve_third_party_distributions,
+    sync_dependency_cache,
     write_package_sha_file,
     write_package_sha_files,
 )
@@ -42,7 +45,9 @@ ModuleNotFoundError: No module named 'app.hidden.runtime_dep'
         )
 
     def test_parse_missing_module_from_traceback_returns_none_when_absent(self):
-        self.assertIsNone(parse_missing_module_from_traceback("Build verification failed"))
+        self.assertIsNone(
+            parse_missing_module_from_traceback("Build verification failed")
+        )
 
     def test_choose_auto_fix_target_prefers_first_party_module(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -68,7 +73,9 @@ ModuleNotFoundError: No module named 'app.hidden.runtime_dep'
 
         self.assertEqual((kind, value), ("distribution", "PyYAML"))
 
-    def test_choose_auto_fix_target_deterministically_selects_first_sorted_distribution(self):
+    def test_choose_auto_fix_target_deterministically_selects_first_sorted_distribution(
+        self,
+    ):
         kind, value = choose_auto_fix_target(
             missing_module="yaml.loader",
             project_root=Path("/tmp/nonexistent"),
@@ -113,7 +120,7 @@ ModuleNotFoundError: No module named 'app.hidden.runtime_dep'
     def test_resolve_third_party_distributions_error_mentions_checked_paths(self):
         with self.assertRaisesRegex(
             KeyError,
-            r"Checked local modules under /tmp/project and pinned requirements in /tmp/project/requirements.txt",
+            r"Checked local modules under /tmp/project and pinned lock requirements in /tmp/project/requirements.txt",
         ):
             resolve_third_party_distributions(
                 third_party_roots={"imaginarypkg"},
@@ -149,8 +156,12 @@ ModuleNotFoundError: No module named 'app.hidden.runtime_dep'
             build_target = project_root / "build" / "users_get"
             build_target.mkdir(parents=True)
             (build_target / "packs").mkdir(parents=True)
-            (build_target / "packs" / "users_get.py").write_text("x = 1\n", encoding="utf-8")
-            (build_target / "requirements.txt").write_text("requests==2.32.3\n", encoding="utf-8")
+            (build_target / "packs" / "users_get.py").write_text(
+                "x = 1\n", encoding="utf-8"
+            )
+            (build_target / "requirements.txt").write_text(
+                "requests==2.32.3\n", encoding="utf-8"
+            )
 
             written = write_package_sha_files(
                 build_target=build_target,
@@ -159,8 +170,12 @@ ModuleNotFoundError: No module named 'app.hidden.runtime_dep'
             )
 
             self.assertEqual(len(written), 2)
-            self.assertTrue((project_root / "build" / "users_get.package.sha256").is_file())
-            self.assertTrue((project_root / "build" / "users_get.package.sha256.b64").is_file())
+            self.assertTrue(
+                (project_root / "build" / "users_get.package.sha256").is_file()
+            )
+            self.assertTrue(
+                (project_root / "build" / "users_get.package.sha256.b64").is_file()
+            )
 
     def test_persist_inline_config_fix_preserves_non_managed_content(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -195,8 +210,8 @@ ModuleNotFoundError: No module named 'app.hidden.runtime_dep'
             rewritten = entrypoint.read_text(encoding="utf-8")
 
             self.assertIn("app.hidden.runtime_dep", updated.extra_modules)
-            rewritten_tail = rewritten[rewritten.index("import os"):]
-            original_tail = original[original.index("import os"):]
+            rewritten_tail = rewritten[rewritten.index("import os") :]
+            original_tail = original[original.index("import os") :]
             self.assertEqual(rewritten_tail, original_tail)
 
     def test_package_content_digest_is_stable_for_same_content(self):
@@ -205,8 +220,12 @@ ModuleNotFoundError: No module named 'app.hidden.runtime_dep'
             build_target = project_root / "build" / "users_get"
             build_target.mkdir(parents=True)
             (build_target / "packs").mkdir(parents=True)
-            (build_target / "packs" / "users_get.py").write_text("x = 1\n", encoding="utf-8")
-            (build_target / "requirements.txt").write_text("requests==2.32.3\n", encoding="utf-8")
+            (build_target / "packs" / "users_get.py").write_text(
+                "x = 1\n", encoding="utf-8"
+            )
+            (build_target / "requirements.txt").write_text(
+                "requests==2.32.3\n", encoding="utf-8"
+            )
 
             first = package_content_digest(build_target)
             second = package_content_digest(build_target)
@@ -222,8 +241,12 @@ ModuleNotFoundError: No module named 'app.hidden.runtime_dep'
             )
 
             config = InlineConfig()
-            updated = persist_inline_config_fix(entrypoint, config, "module", "app.hidden.runtime_dep")
-            persist_inline_config_fix(entrypoint, updated, "module", "app.hidden.runtime_dep")
+            updated = persist_inline_config_fix(
+                entrypoint, config, "module", "app.hidden.runtime_dep"
+            )
+            persist_inline_config_fix(
+                entrypoint, updated, "module", "app.hidden.runtime_dep"
+            )
 
             parsed = parse_inline_config(entrypoint.read_text(encoding="utf-8"))
 
@@ -245,7 +268,9 @@ ModuleNotFoundError: No module named 'app.hidden.runtime_dep'
                 r"stderr:\n"
                 r"pip stderr details",
             ):
-                _pip_install_target(Path("/tmp/build"), Path("/tmp/build/requirements.txt"))
+                _pip_install_target(
+                    Path("/tmp/build"), Path("/tmp/build/requirements.txt")
+                )
 
     def test_pip_install_target_falls_back_to_pip_binary_when_module_missing(self):
         first = subprocess.CompletedProcess(
@@ -261,7 +286,9 @@ ModuleNotFoundError: No module named 'app.hidden.runtime_dep'
             stderr="",
         )
 
-        with mock.patch("monopack.build.subprocess.run", side_effect=[first, second]) as run:
+        with mock.patch(
+            "monopack.build.subprocess.run", side_effect=[first, second]
+        ) as run:
             _pip_install_target(Path("/tmp/build"), Path("/tmp/build/requirements.txt"))
 
         self.assertEqual(run.call_count, 2)
@@ -282,7 +309,211 @@ ModuleNotFoundError: No module named 'app.hidden.runtime_dep'
                 RuntimeError,
                 "neither 'python -m pip' nor 'pip' is available",
             ):
-                _pip_install_target(Path("/tmp/build"), Path("/tmp/build/requirements.txt"))
+                _pip_install_target(
+                    Path("/tmp/build"), Path("/tmp/build/requirements.txt")
+                )
+
+    def test_prepare_source_requirements_uses_project_requirements_for_pip(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            project_root = Path(tmpdir)
+            deps_root = project_root / "build" / ".deps"
+            requirements_path = project_root / "requirements.txt"
+            requirements_path.write_text("requests==2.32.3\n", encoding="utf-8")
+
+            resolved = prepare_source_requirements(
+                project_root=project_root,
+                deps_root=deps_root,
+                package_manager="pip",
+            )
+
+        self.assertEqual(resolved, requirements_path)
+
+    def test_prepare_source_requirements_exports_from_poetry(self):
+        completed = subprocess.CompletedProcess(
+            args=["poetry", "export"],
+            returncode=0,
+            stdout="requests==2.32.3\n",
+            stderr="",
+        )
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            project_root = Path(tmpdir)
+            deps_root = project_root / "build" / ".deps"
+
+            with mock.patch(
+                "monopack.build.subprocess.run", return_value=completed
+            ) as run:
+                output_path = prepare_source_requirements(
+                    project_root=project_root,
+                    deps_root=deps_root,
+                    package_manager="poetry",
+                )
+
+            self.assertTrue(output_path.is_file())
+            self.assertEqual(
+                output_path.read_text(encoding="utf-8"),
+                "requests==2.32.3\n",
+            )
+            self.assertEqual(run.call_count, 1)
+
+    def test_prepare_source_requirements_tries_fallback_export_command(self):
+        first = subprocess.CompletedProcess(
+            args=["uv", "export", "--format", "requirements.txt", "--no-hashes"],
+            returncode=2,
+            stdout="",
+            stderr="unsupported format",
+        )
+        second = subprocess.CompletedProcess(
+            args=["uv", "export", "--format", "requirements-txt", "--no-hashes"],
+            returncode=0,
+            stdout="requests==2.32.3\n",
+            stderr="",
+        )
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            project_root = Path(tmpdir)
+            deps_root = project_root / "build" / ".deps"
+
+            with mock.patch(
+                "monopack.build.subprocess.run", side_effect=[first, second]
+            ) as run:
+                output_path = prepare_source_requirements(
+                    project_root=project_root,
+                    deps_root=deps_root,
+                    package_manager="uv",
+                )
+
+            self.assertEqual(run.call_count, 2)
+            self.assertEqual(
+                output_path.read_text(encoding="utf-8"),
+                "requests==2.32.3\n",
+            )
+
+    def test_prepare_source_requirements_raises_when_export_fails(self):
+        failed = subprocess.CompletedProcess(
+            args=["pipenv", "requirements"],
+            returncode=1,
+            stdout="",
+            stderr="pipenv command failed",
+        )
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            project_root = Path(tmpdir)
+            deps_root = project_root / "build" / ".deps"
+
+            with mock.patch("monopack.build.subprocess.run", return_value=failed):
+                with self.assertRaisesRegex(
+                    RuntimeError,
+                    "Failed to export requirements from package manager 'pipenv'",
+                ):
+                    prepare_source_requirements(
+                        project_root=project_root,
+                        deps_root=deps_root,
+                        package_manager="pipenv",
+                    )
+
+    def test_sync_dependency_cache_accepts_unpinned_source_and_writes_pinned_lock(self):
+        freeze_stdout = "requests==2.32.3\nidna==3.11\n"
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            project_root = Path(tmpdir) / "project"
+            build_dir = project_root / "build"
+            project_root.mkdir(parents=True)
+            (project_root / "requirements.txt").write_text(
+                "requests>=2\n",
+                encoding="utf-8",
+            )
+
+            run_checked_results = [
+                subprocess.CompletedProcess(
+                    args=["venv"], returncode=0, stdout="", stderr=""
+                ),
+                subprocess.CompletedProcess(
+                    args=["install"], returncode=0, stdout="", stderr=""
+                ),
+                subprocess.CompletedProcess(
+                    args=["freeze"], returncode=0, stdout=freeze_stdout, stderr=""
+                ),
+                subprocess.CompletedProcess(
+                    args=["download"], returncode=0, stdout="", stderr=""
+                ),
+            ]
+
+            with mock.patch(
+                "monopack.build._run_checked",
+                side_effect=run_checked_results,
+            ) as run_checked:
+                with mock.patch(
+                    "monopack.build._packages_distributions_from_python",
+                    return_value={"requests": ["requests"]},
+                ):
+                    lock_path, wheelhouse, package_map = sync_dependency_cache(
+                        project_root=project_root,
+                        build_dir=build_dir,
+                        package_manager="auto",
+                    )
+
+            self.assertTrue(lock_path.is_file())
+            self.assertEqual(lock_path.name, DEPENDENCY_LOCK_FILENAME)
+            self.assertEqual(lock_path.read_text(encoding="utf-8"), freeze_stdout)
+            self.assertTrue(wheelhouse.is_dir())
+            self.assertEqual(package_map, {"requests": ["requests"]})
+
+            install_command = run_checked.call_args_list[1].args[0]
+            self.assertIn("-r", install_command)
+            self.assertIn(str(project_root / "requirements.txt"), install_command)
+
+    def test_sync_dependency_cache_auto_detects_uv_for_source_requirements(self):
+        freeze_stdout = "requests==2.32.3\n"
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            project_root = Path(tmpdir) / "project"
+            build_dir = project_root / "build"
+            deps_root = build_dir / ".deps"
+            source_requirements = deps_root / "uv.requirements.txt"
+
+            project_root.mkdir(parents=True)
+            (project_root / "uv.lock").write_text("", encoding="utf-8")
+            deps_root.mkdir(parents=True, exist_ok=True)
+            source_requirements.write_text("requests>=2\n", encoding="utf-8")
+
+            run_checked_results = [
+                subprocess.CompletedProcess(
+                    args=["venv"], returncode=0, stdout="", stderr=""
+                ),
+                subprocess.CompletedProcess(
+                    args=["install"], returncode=0, stdout="", stderr=""
+                ),
+                subprocess.CompletedProcess(
+                    args=["freeze"], returncode=0, stdout=freeze_stdout, stderr=""
+                ),
+                subprocess.CompletedProcess(
+                    args=["download"], returncode=0, stdout="", stderr=""
+                ),
+            ]
+
+            with mock.patch(
+                "monopack.build.prepare_source_requirements",
+                return_value=source_requirements,
+            ) as prepare:
+                with mock.patch(
+                    "monopack.build._run_checked",
+                    side_effect=run_checked_results,
+                ):
+                    with mock.patch(
+                        "monopack.build._packages_distributions_from_python",
+                        return_value={"requests": ["requests"]},
+                    ):
+                        sync_dependency_cache(
+                            project_root=project_root,
+                            build_dir=build_dir,
+                            package_manager="auto",
+                        )
+
+            self.assertEqual(
+                prepare.call_args.kwargs["package_manager"],
+                "uv",
+            )
 
     def test_create_build_artifact_zip_writes_files_with_sorted_paths(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -292,7 +523,9 @@ ModuleNotFoundError: No module named 'app.hidden.runtime_dep'
             (build_target / "zeta").mkdir(parents=True)
             (build_target / "alpha").mkdir(parents=True)
             (build_target / "zeta" / "file.txt").write_text("zeta\n", encoding="utf-8")
-            (build_target / "alpha" / "file.txt").write_text("alpha\n", encoding="utf-8")
+            (build_target / "alpha" / "file.txt").write_text(
+                "alpha\n", encoding="utf-8"
+            )
 
             result = create_build_artifact_zip(build_target, artifact_path)
 
@@ -322,15 +555,27 @@ ModuleNotFoundError: No module named 'app.hidden.runtime_dep'
             build_target = project_root / "build" / "users_get"
             build_target.mkdir(parents=True)
             (build_target / "packs").mkdir(parents=True)
-            (build_target / "packs" / "users_get.py").write_text("x = 1\n", encoding="utf-8")
-            (build_target / "requirements.txt").write_text("requests==2.32.3\n", encoding="utf-8")
+            (build_target / "packs" / "users_get.py").write_text(
+                "x = 1\n", encoding="utf-8"
+            )
+            (build_target / "requirements.txt").write_text(
+                "requests==2.32.3\n", encoding="utf-8"
+            )
             (build_target / "requests").mkdir(parents=True)
-            (build_target / "requests" / "__init__.py").write_text("__version__='x'\n", encoding="utf-8")
+            (build_target / "requests" / "__init__.py").write_text(
+                "__version__='x'\n", encoding="utf-8"
+            )
 
-            first = write_package_sha_file(build_target, project_root / "build" / "users_get.package.sha256")
-            second = write_package_sha_file(build_target, project_root / "build" / "users_get.package.sha256")
+            first = write_package_sha_file(
+                build_target, project_root / "build" / "users_get.package.sha256"
+            )
+            second = write_package_sha_file(
+                build_target, project_root / "build" / "users_get.package.sha256"
+            )
 
-            self.assertEqual(first.read_text(encoding="utf-8"), second.read_text(encoding="utf-8"))
+            self.assertEqual(
+                first.read_text(encoding="utf-8"), second.read_text(encoding="utf-8")
+            )
 
     def test_write_package_sha_file_changes_when_first_party_content_changes(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -340,7 +585,9 @@ ModuleNotFoundError: No module named 'app.hidden.runtime_dep'
             (build_target / "packs").mkdir(parents=True)
             source_file = build_target / "packs" / "users_get.py"
             source_file.write_text("x = 1\n", encoding="utf-8")
-            (build_target / "requirements.txt").write_text("requests==2.32.3\n", encoding="utf-8")
+            (build_target / "requirements.txt").write_text(
+                "requests==2.32.3\n", encoding="utf-8"
+            )
 
             output_path = project_root / "build" / "users_get.package.sha256"
             write_package_sha_file(build_target, output_path)

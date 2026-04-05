@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.4.0
+
+- Added `--package-manager` with `auto|pip|uv|poetry|pipenv` to support non-pip lock/export flows.
+- Added project-file auto-detection for package manager selection and explicit override support.
+- Added package-manager export command mapping to normalize dependency sources into the existing build cache pipeline.
+- Updated validation and tests for auto-detection ambiguity/missing-source errors and package-manager threading through builds.
+
 ## 0.3.0
 
 - Breaking rename: switched entrypoint terminology and structure from `functions` to `packs` across CLI flags, env vars, runtime module imports, docs, and fixtures.

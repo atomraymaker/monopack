@@ -26,6 +26,7 @@ Exit codes:
 | `--debug` | flag | `False` | Print aggregated build/import resolution diagnostics to stderr. |
 | `--jobs` | `auto` or integer | `auto` | Parallel workers for multi-pack builds. `auto` picks a conservative core-based value (capped) and falls back to serial with `--auto-fix`. |
 | `--sha-output` | comma list (`hex`,`b64`) | `hex` | Deploy-mode package digest output(s): `build/<pack>.package.sha256` and/or `build/<pack>.package.sha256.b64`. |
+| `--package-manager` | `auto`,`pip`,`uv`,`poetry`,`pipenv` | `auto` | Dependency source manager for cache preparation. `auto` infers from project files and errors when ambiguous. |
 
 ## Environment variables
 
@@ -39,16 +40,21 @@ CLI flags override env vars. Env vars override built-in defaults.
 - `MONOPACK_WITH_TESTS` (`1/0`, `true/false`, `yes/no`)
 - `MONOPACK_DEBUG` (`1/0`, `true/false`, `yes/no`)
 - `MONOPACK_JOBS` (`auto` or positive integer)
+- `MONOPACK_PACKAGE_MANAGER` (`auto`, `pip`, `uv`, `poetry`, `pipenv`)
 
 ## Validation rules
 
 - `packs_dir` must exist and be a directory.
 - `build_dir` must differ from `packs_dir` and cannot be nested inside it.
-- `<project_root>/requirements.txt` must exist and be a file.
+- Dependency source must be resolvable by package manager selection. In `pip` mode this requires `<project_root>/requirements.txt`.
 - Pack names must match `^[a-zA-Z0-9_]+$`.
 - Target names cannot contain `/`, `\\`, or `.`.
 - `--with-tests` is valid only with `--mode deploy`.
 - `--mode test` or `--with-tests` requires `<project_root>/tests/` to exist.
+
+Dependency source note:
+
+- Source dependency files may be unpinned. `monopack` installs/syncs from the selected source and normalizes pinned versions from cache sync (`pip freeze`) for per-pack requirement slicing.
 
 ## Examples
 

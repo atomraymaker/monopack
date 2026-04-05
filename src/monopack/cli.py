@@ -9,6 +9,7 @@ import sys
 from monopack import __version__
 from monopack.build import build_pack, prewarm_shared_build_state
 from monopack.discovery import discover_packs
+from monopack.package_manager import SUPPORTED_PACKAGE_MANAGERS
 from monopack.validation import (
     validate_cli_mode_options,
     validate_cli_paths,
@@ -153,6 +154,15 @@ def parse_args(argv=None):
             "(use b64 for Terraform source_code_hash workflows)"
         ),
     )
+    parser.add_argument(
+        "--package-manager",
+        choices=SUPPORTED_PACKAGE_MANAGERS,
+        default=os.environ.get("MONOPACK_PACKAGE_MANAGER", "auto"),
+        help=(
+            "Dependency source manager for cache preparation: auto, pip, uv, poetry, pipenv. "
+            "'auto' infers from project files."
+        ),
+    )
 
     parser.set_defaults(verify=_parse_env_bool("MONOPACK_VERIFY", True))
     parser.set_defaults(auto_fix=_parse_env_bool("MONOPACK_AUTO_FIX", False))
@@ -180,6 +190,7 @@ def main(argv=None):
             project_root,
             args.mode,
             args.with_tests,
+            args.package_manager,
         )
 
         if args.pack_name is not None:
@@ -206,6 +217,7 @@ def main(argv=None):
             shared_state = prewarm_shared_build_state(
                 project_root=project_root,
                 build_dir=build_dir,
+                package_manager=args.package_manager,
             )
 
         if jobs <= 1:
@@ -221,6 +233,7 @@ def main(argv=None):
                     with_tests=args.with_tests,
                     debug=args.debug,
                     sha_outputs=sha_outputs,
+                    package_manager=args.package_manager,
                     shared_state=shared_state,
                 )
                 print(build_target)
@@ -242,6 +255,7 @@ def main(argv=None):
                         with_tests=args.with_tests,
                         debug=args.debug,
                         sha_outputs=sha_outputs,
+                        package_manager=args.package_manager,
                         shared_state=shared_state,
                     )
                 return build_target, stderr_buffer.getvalue()

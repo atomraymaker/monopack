@@ -22,6 +22,7 @@ from monopack.graph import (
 from monopack.imports import classify_roots, extract_imports_from_file, root_module
 from monopack.inline_config import InlineConfig, parse_inline_config, rewrite_inline_config
 from monopack.module_resolver import resolve_module_to_file
+from monopack.package_manager import resolve_package_manager
 from monopack.requirements import (
     filter_requirements_for_distributions,
     parse_pinned_requirements,
@@ -44,13 +45,27 @@ DEPENDENCY_LOCK_FILENAME = "requirements.lock.txt"
 _MISSING_MODULE_RE = re.compile(
     r"ModuleNotFoundError:\s+No module named ['\"](?P<module>[^'\"]+)['\"]"
 )
-_DEPENDENCY_SYNC_CACHE: set[tuple[str, str, str]] = set()
+_DEPENDENCY_SYNC_CACHE: set[tuple[str, str, str, str]] = set()
 _DEPENDENCY_SYNC_LOCK = threading.Lock()
 _FIRST_PARTY_ANALYSIS_CACHE: dict[
     tuple[str, tuple[tuple[str, int, int], ...]],
     FirstPartyAnalysisCache,
 ] = {}
 _FIRST_PARTY_ANALYSIS_CACHE_LOCK = threading.Lock()
+_PACKAGE_MANAGER_EXPORT_COMMANDS: dict[str, list[list[str]]] = {
+    "uv": [
+        ["uv", "export", "--format", "requirements.txt", "--no-hashes"],
+        ["uv", "export", "--format", "requirements-txt", "--no-hashes"],
+    ],
+    "poetry": [
+        ["poetry", "export", "--format", "requirements.txt", "--without-hashes"],
+        ["poetry", "export", "-f", "requirements.txt", "--without-hashes"],
+    ],
+    "pipenv": [
+        ["pipenv", "requirements"],
+        ["pipenv", "lock", "-r"],
+    ],
+}
 
 
 @dataclass(frozen=True)
@@ -81,6 +96,7 @@ def build_pack(
     debug: bool = False,
     max_retries: int = 3,
     sha_outputs: set[str] | None = None,
+    package_manager: str = "auto",
     shared_state: SharedBuildState | None = None,
 ) -> Path:
     """Build one pack and optionally write deploy artifacts.
@@ -104,6 +120,7 @@ def build_pack(
                 with_tests=with_tests,
                 debug=debug,
                 sha_outputs=normalized_sha_outputs,
+                package_manager=package_manager,
                 shared_state=shared_state,
             )
         except VerificationFailedError as exc:
@@ -142,6 +159,7 @@ def _build_pack_once(
     with_tests: bool,
     debug: bool,
     sha_outputs: set[str],
+    package_manager: str,
     shared_state: SharedBuildState | None,
 ) -> Path:
     """Execute a single build attempt without auto-fix retry handling."""
@@ -155,6 +173,7 @@ def _build_pack_once(
     effective_shared_state = shared_state or prewarm_shared_build_state(
         project_root=project_root,
         build_dir=build_dir,
+        package_manager=package_manager,
     )
     lock_requirements_path = effective_shared_state.lock_requirements_path
     wheelhouse = effective_shared_state.wheelhouse
@@ -512,7 +531,7 @@ def resolve_third_party_distributions(
     project_root: Path | None = None,
     requirements_path: Path | None = None,
 ) -> set[str]:
-    """Resolve import roots to distribution names present in pinned requirements."""
+    """Resolve import roots to distribution names present in pinned lock requirements."""
 
     resolved: set[str] = set()
     unresolved: list[str] = []
@@ -549,8 +568,9 @@ def resolve_third_party_distributions(
         raise KeyError(
             "Could not resolve imports to pinned third-party distributions: "
             f"{unresolved_display}. Checked local modules under {project_root_display} "
-            f"and pinned requirements in {requirements_display}. "
-            "If these are third-party imports, add pinned 'name==version' entries. "
+            f"and pinned lock requirements in {requirements_display}. "
+            "If these are third-party imports, ensure they resolve to installed distributions "
+            "during dependency sync. "
             "If these are local modules, ensure they resolve under the project root."
         )
 
@@ -572,18 +592,76 @@ def _local_root_candidate_path(root: str, project_root: Path) -> Path | None:
     return None
 
 
-def sync_dependency_cache(project_root: Path, build_dir: Path) -> tuple[Path, Path, dict[str, list[str]]]:
+def prepare_source_requirements(
+    project_root: Path,
+    deps_root: Path,
+    package_manager: str,
+) -> Path:
+    """Prepare a requirements source file for dependency cache sync."""
+
+    if package_manager == "pip":
+        requirements_path = project_root / "requirements.txt"
+        if not requirements_path.is_file():
+            raise FileNotFoundError(
+                "Missing required requirements file at "
+                f"{requirements_path}. Add a project-level requirements.txt."
+            )
+        return requirements_path
+
+    export_commands = _PACKAGE_MANAGER_EXPORT_COMMANDS.get(package_manager)
+    if not export_commands:
+        raise ValueError(
+            f"Unsupported package manager '{package_manager}' for dependency export."
+        )
+
+    deps_root.mkdir(parents=True, exist_ok=True)
+    output_path = deps_root / f"{package_manager}.requirements.txt"
+
+    failures: list[str] = []
+    for command in export_commands:
+        completed = subprocess.run(
+            command,
+            cwd=project_root,
+            capture_output=True,
+            text=True,
+        )
+        if completed.returncode == 0:
+            output_path.write_text(completed.stdout, encoding="utf-8")
+            return output_path
+
+        failures.append(
+            f"$ {' '.join(command)}\nstdout:\n{completed.stdout}\nstderr:\n{completed.stderr}"
+        )
+
+    details = "\n\n".join(failures)
+    raise RuntimeError(
+        "Failed to export requirements from package manager "
+        f"'{package_manager}'. Tried the following commands:\n\n{details}"
+    )
+
+
+def sync_dependency_cache(
+    project_root: Path,
+    build_dir: Path,
+    package_manager: str,
+) -> tuple[Path, Path, dict[str, list[str]]]:
     """Install top-level deps once per build invocation and return lock + wheelhouse."""
 
-    source_requirements = project_root / "requirements.txt"
+    deps_root = build_dir / DEPENDENCY_CACHE_DIRNAME
+    resolved_package_manager = resolve_package_manager(project_root, package_manager)
+    source_requirements = prepare_source_requirements(
+        project_root=project_root,
+        deps_root=deps_root,
+        package_manager=resolved_package_manager,
+    )
     requirements_text = source_requirements.read_text(encoding="utf-8")
-    cache_key = (
+    cache_key: tuple[str, str, str, str] = (
         str(project_root.resolve()),
         str(build_dir.resolve()),
+        resolved_package_manager,
         requirements_text,
     )
 
-    deps_root = build_dir / DEPENDENCY_CACHE_DIRNAME
     deps_venv = deps_root / "venv"
     lock_path = deps_root / DEPENDENCY_LOCK_FILENAME
     wheelhouse = deps_root / "wheelhouse"
@@ -644,12 +722,14 @@ def sync_dependency_cache(project_root: Path, build_dir: Path) -> tuple[Path, Pa
 def prewarm_shared_build_state(
     project_root: Path,
     build_dir: Path,
+    package_manager: str = "auto",
 ) -> SharedBuildState:
     """Compute reusable dependency and import analysis state once."""
 
     lock_requirements_path, wheelhouse, package_map = sync_dependency_cache(
         project_root=project_root,
         build_dir=build_dir,
+        package_manager=package_manager,
     )
     analysis_cache = get_first_party_analysis_cache(project_root)
     return SharedBuildState(
@@ -720,8 +800,12 @@ def _packages_distributions_from_python(python_executable: Path) -> dict[str, li
     return json.loads(output.stdout)
 
 
-def _run_checked(command: list[str], failure_message: str) -> subprocess.CompletedProcess[str]:
-    completed = subprocess.run(command, capture_output=True, text=True)
+def _run_checked(
+    command: list[str],
+    failure_message: str,
+    cwd: Path | None = None,
+) -> subprocess.CompletedProcess[str]:
+    completed = subprocess.run(command, capture_output=True, text=True, cwd=cwd)
     if completed.returncode == 0:
         return completed
 

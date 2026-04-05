@@ -15,6 +15,9 @@
           packages = [
             pkgs.python312
             pkgs.python312Packages.pip
+            pkgs.uv
+            pkgs.poetry
+            pkgs.pipenv
           ];
         };
       });

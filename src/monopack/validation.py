@@ -3,6 +3,8 @@
 import re
 from pathlib import Path
 
+from monopack.package_manager import resolve_package_manager
+
 
 _PACK_NAME_RE = re.compile(r"^[a-zA-Z0-9_]+$")
 
@@ -13,6 +15,7 @@ def validate_cli_paths(
     project_root: Path,
     mode: str,
     with_tests: bool,
+    package_manager: str,
 ) -> None:
     """Validate required directories/files and path safety constraints."""
 
@@ -38,16 +41,19 @@ def validate_cli_paths(
             f"build_dir={build_dir}, packs_dir={packs_dir}"
         )
 
-    requirements_path = project_root / "requirements.txt"
-    if not requirements_path.exists():
-        raise FileNotFoundError(
-            "Missing required requirements file at "
-            f"{requirements_path}. Add a project-level requirements.txt."
-        )
-    if not requirements_path.is_file():
-        raise FileNotFoundError(
-            f"requirements.txt is not a file: {requirements_path}"
-        )
+    resolved_package_manager = resolve_package_manager(project_root, package_manager)
+
+    if resolved_package_manager == "pip":
+        requirements_path = project_root / "requirements.txt"
+        if not requirements_path.exists():
+            raise FileNotFoundError(
+                "Missing required requirements file at "
+                f"{requirements_path}. Add a project-level requirements.txt."
+            )
+        if not requirements_path.is_file():
+            raise FileNotFoundError(
+                f"requirements.txt is not a file: {requirements_path}"
+            )
 
     if mode == "test" or with_tests:
         tests_dir = project_root / "tests"
