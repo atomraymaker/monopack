@@ -10,6 +10,7 @@ src/monopack/graph.py
 src/monopack/imports.py
 src/monopack/inline_config.py
 src/monopack/module_resolver.py
+src/monopack/package_manager.py
 src/monopack/requirements.py
 src/monopack/test_mode.py
 src/monopack/validation.py
@@ -30,6 +31,7 @@ tests/test_imports.py
 tests/test_inline_config.py
 tests/test_module_resolver.py
 tests/test_package.py
+tests/test_package_manager.py
 tests/test_requirements.py
 tests/test_test_mode.py
 tests/test_verifier.py
