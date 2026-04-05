@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.4.0
+## 0.3.1
 
 - Added `--package-manager` with `auto|pip|uv|poetry|pipenv` to support non-pip lock/export flows.
 - Added project-file auto-detection for package manager selection and explicit override support.

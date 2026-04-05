@@ -10,11 +10,15 @@
     flake-utils.lib.eachDefaultSystem (system:
       let
         pkgs = import nixpkgs { inherit system; };
+        pythonEnv = pkgs.python312.withPackages (ps: [
+          ps.pip
+          ps.build
+          ps.twine
+        ]);
       in {
         devShells.default = pkgs.mkShell {
           packages = [
-            pkgs.python312
-            pkgs.python312Packages.pip
+            pythonEnv
             pkgs.uv
             pkgs.poetry
             pkgs.pipenv
