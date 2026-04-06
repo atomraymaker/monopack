@@ -4,6 +4,7 @@ import json
 import base64
 from dataclasses import dataclass
 import hashlib
+import os
 import re
 import shutil
 import subprocess
@@ -20,7 +21,11 @@ from monopack.graph import (
     collect_reachable_first_party_files,
 )
 from monopack.imports import classify_roots, extract_imports_from_file, root_module
-from monopack.inline_config import InlineConfig, parse_inline_config, rewrite_inline_config
+from monopack.inline_config import (
+    InlineConfig,
+    parse_inline_config,
+    rewrite_inline_config,
+)
 from monopack.module_resolver import resolve_module_to_file
 from monopack.package_manager import resolve_package_manager
 from monopack.requirements import (
@@ -97,6 +102,7 @@ def build_pack(
     max_retries: int = 3,
     sha_outputs: set[str] | None = None,
     package_manager: str = "auto",
+    existing_install_python: str | None = None,
     shared_state: SharedBuildState | None = None,
 ) -> Path:
     """Build one pack and optionally write deploy artifacts.
@@ -121,6 +127,7 @@ def build_pack(
                 debug=debug,
                 sha_outputs=normalized_sha_outputs,
                 package_manager=package_manager,
+                existing_install_python=existing_install_python,
                 shared_state=shared_state,
             )
         except VerificationFailedError as exc:
@@ -160,6 +167,7 @@ def _build_pack_once(
     debug: bool,
     sha_outputs: set[str],
     package_manager: str,
+    existing_install_python: str | None,
     shared_state: SharedBuildState | None,
 ) -> Path:
     """Execute a single build attempt without auto-fix retry handling."""
@@ -174,6 +182,8 @@ def _build_pack_once(
         project_root=project_root,
         build_dir=build_dir,
         package_manager=package_manager,
+        existing_install_python=existing_install_python,
+        debug=debug,
     )
     lock_requirements_path = effective_shared_state.lock_requirements_path
     wheelhouse = effective_shared_state.wheelhouse
@@ -313,7 +323,9 @@ def create_build_artifact_zip(build_target: Path, artifact_path: Path) -> Path:
     )
 
     artifact_path.parent.mkdir(parents=True, exist_ok=True)
-    with zipfile.ZipFile(artifact_path, mode="w", compression=zipfile.ZIP_DEFLATED) as archive:
+    with zipfile.ZipFile(
+        artifact_path, mode="w", compression=zipfile.ZIP_DEFLATED
+    ) as archive:
         for file_path in files:
             relative_path = file_path.relative_to(build_target).as_posix()
             archive.write(file_path, arcname=relative_path)
@@ -344,7 +356,9 @@ def package_content_digest(build_target: Path) -> bytes:
 
     digest = hashlib.sha256()
     file_paths = sorted(
-        path for path in build_target.rglob("*") if path.is_file() and _included_in_package_hash(path, build_target)
+        path
+        for path in build_target.rglob("*")
+        if path.is_file() and _included_in_package_hash(path, build_target)
     )
 
     for file_path in file_paths:
@@ -358,7 +372,9 @@ def package_content_digest(build_target: Path) -> bytes:
     return digest.digest()
 
 
-def write_package_sha_files(build_target: Path, output_prefix: Path, sha_outputs: set[str]) -> list[Path]:
+def write_package_sha_files(
+    build_target: Path, output_prefix: Path, sha_outputs: set[str]
+) -> list[Path]:
     """Write selected package digest output files for deploy workflows."""
 
     normalized_outputs = normalize_sha_outputs(sha_outputs)
@@ -476,6 +492,55 @@ def _pip_install_target(
         command.append("--no-index")
     if find_links is not None:
         command.extend(["--find-links", str(find_links)])
+    completed = _run_pip_install(
+        command, build_target, requirements_path, no_index, find_links
+    )
+    if completed.returncode == 0:
+        return
+
+    if no_index or find_links is not None:
+        retry_command = [
+            sys.executable,
+            "-m",
+            "pip",
+            "install",
+            "--target",
+            str(build_target),
+            "-r",
+            str(requirements_path),
+        ]
+        retry = _run_pip_install(
+            retry_command,
+            build_target,
+            requirements_path,
+            no_index=False,
+            find_links=None,
+        )
+        if retry.returncode == 0:
+            return
+
+        raise RuntimeError(
+            "Dependency installation failed after local-wheelhouse and online fallback attempts. "
+            f"local stdout:\n{completed.stdout}\n"
+            f"local stderr:\n{completed.stderr}\n"
+            f"online stdout:\n{retry.stdout}\n"
+            f"online stderr:\n{retry.stderr}"
+        )
+
+    raise RuntimeError(
+        "Dependency installation failed. "
+        f"stdout:\n{completed.stdout}\n"
+        f"stderr:\n{completed.stderr}"
+    )
+
+
+def _run_pip_install(
+    command: list[str],
+    build_target: Path,
+    requirements_path: Path,
+    no_index: bool,
+    find_links: Path | None,
+) -> subprocess.CompletedProcess[str]:
     try:
         completed = subprocess.run(
             command,
@@ -490,7 +555,7 @@ def _pip_install_target(
 
     if completed.returncode != 0 and "No module named pip" in completed.stderr:
         try:
-            completed = subprocess.run(
+            return subprocess.run(
                 [
                     "pip",
                     "install",
@@ -510,14 +575,7 @@ def _pip_install_target(
                 "is available. Install pip before running builds with dependencies."
             ) from exc
 
-    if completed.returncode == 0:
-        return
-
-    raise RuntimeError(
-        "Dependency installation failed. "
-        f"stdout:\n{completed.stdout}\n"
-        f"stderr:\n{completed.stderr}"
-    )
+    return completed
 
 
 def _normalize_distribution_name(name: str) -> str:
@@ -559,7 +617,9 @@ def resolve_third_party_distributions(
 
     if unresolved:
         unresolved_display = ", ".join(unresolved)
-        project_root_display = str(project_root) if project_root is not None else "<project_root>"
+        project_root_display = (
+            str(project_root) if project_root is not None else "<project_root>"
+        )
         requirements_display = (
             str(requirements_path)
             if requirements_path is not None
@@ -640,10 +700,125 @@ def prepare_source_requirements(
     )
 
 
+def _resolve_python_candidate_path(candidate: str, project_root: Path) -> Path:
+    path = Path(candidate).expanduser()
+    if not path.is_absolute():
+        path = (project_root / path).resolve()
+    return path
+
+
+def _python_from_virtualenv_path(env_path: str, project_root: Path) -> Path | None:
+    resolved = _resolve_python_candidate_path(env_path, project_root)
+    python_path = resolved / "bin" / "python"
+    if python_path.is_file():
+        return python_path
+    return None
+
+
+def _poetry_env_python(project_root: Path) -> Path | None:
+    completed = subprocess.run(
+        ["poetry", "env", "info", "-p"],
+        cwd=project_root,
+        capture_output=True,
+        text=True,
+    )
+    if completed.returncode != 0:
+        return None
+
+    env_path = completed.stdout.strip()
+    if not env_path:
+        return None
+
+    return _python_from_virtualenv_path(env_path, project_root)
+
+
+def _pipenv_env_python(project_root: Path) -> Path | None:
+    completed = subprocess.run(
+        ["pipenv", "--venv"],
+        cwd=project_root,
+        capture_output=True,
+        text=True,
+    )
+    if completed.returncode != 0:
+        return None
+
+    env_path = completed.stdout.strip()
+    if not env_path:
+        return None
+
+    return _python_from_virtualenv_path(env_path, project_root)
+
+
+def _discover_existing_install_python(
+    project_root: Path,
+    package_manager: str,
+    override_python: str | None,
+) -> tuple[Path | None, str]:
+    if override_python:
+        override_path = _resolve_python_candidate_path(override_python, project_root)
+        if override_path.is_file():
+            return override_path, "override"
+        return None, f"override not found: {override_path}"
+
+    candidates: list[tuple[Path, str]] = []
+    seen: set[Path] = set()
+
+    def add_candidate(path: Path, source: str) -> None:
+        resolved_path = path.resolve()
+        if resolved_path in seen:
+            return
+        seen.add(resolved_path)
+        candidates.append((resolved_path, source))
+
+    venv_env = os.environ.get("VIRTUAL_ENV")
+    if venv_env:
+        python_path = Path(venv_env) / "bin" / "python"
+        if python_path.is_file():
+            add_candidate(python_path, "VIRTUAL_ENV")
+
+    for relative in (".venv/bin/python", "venv/bin/python", "env/bin/python"):
+        candidate = project_root / relative
+        if candidate.is_file():
+            add_candidate(candidate, f"project:{relative}")
+
+    if package_manager == "poetry":
+        poetry_python = _poetry_env_python(project_root)
+        if poetry_python is not None:
+            add_candidate(poetry_python, "poetry env")
+    elif package_manager == "pipenv":
+        pipenv_python = _pipenv_env_python(project_root)
+        if pipenv_python is not None:
+            add_candidate(pipenv_python, "pipenv --venv")
+
+    if not candidates:
+        return None, "no install candidate found"
+
+    selected, source = candidates[0]
+    return selected, source
+
+
+def _pip_cache_dir_for_python(python_executable: Path) -> Path | None:
+    completed = subprocess.run(
+        [str(python_executable), "-m", "pip", "cache", "dir"],
+        capture_output=True,
+        text=True,
+    )
+    if completed.returncode != 0:
+        return None
+
+    cache_dir = completed.stdout.strip()
+    if not cache_dir:
+        return None
+
+    return Path(cache_dir)
+
+
 def sync_dependency_cache(
     project_root: Path,
     build_dir: Path,
     package_manager: str,
+    existing_install_python: str | None = None,
+    debug: bool = False,
 ) -> tuple[Path, Path, dict[str, list[str]]]:
     """Install top-level deps once per build invocation and return lock + wheelhouse."""
 
@@ -665,10 +840,48 @@ def sync_dependency_cache(
     deps_venv = deps_root / "venv"
     lock_path = deps_root / DEPENDENCY_LOCK_FILENAME
     wheelhouse = deps_root / "wheelhouse"
+    discovered_python, discovered_source = _discover_existing_install_python(
+        project_root=project_root,
+        package_manager=resolved_package_manager,
+        override_python=existing_install_python,
+    )
+    report_fallback = debug or existing_install_python is not None
+    cache_dir: Path | None = None
+    if discovered_python is not None:
+        cache_dir = _pip_cache_dir_for_python(discovered_python)
+        if cache_dir is not None and debug:
+            print(
+                "[debug] Reusing dependency install cache from "
+                f"{discovered_python} ({discovered_source}), pip_cache={cache_dir}",
+                file=sys.stderr,
+            )
+        elif cache_dir is None and report_fallback:
+            print(
+                "[build] Existing install was found but no reusable pip cache was available; "
+                "falling back to normal dependency cache sync.",
+                file=sys.stderr,
+            )
+    else:
+        if report_fallback:
+            print(
+                "[build] No existing install cache found; using normal dependency cache sync.",
+                file=sys.stderr,
+            )
+        if debug:
+            print(
+                f"[debug] Existing install detection details: {discovered_source}",
+                file=sys.stderr,
+            )
 
     with _DEPENDENCY_SYNC_LOCK:
-        if cache_key in _DEPENDENCY_SYNC_CACHE and lock_path.exists() and wheelhouse.exists():
-            package_map = _packages_distributions_from_python(deps_venv / "bin" / "python")
+        if (
+            cache_key in _DEPENDENCY_SYNC_CACHE
+            and lock_path.exists()
+            and wheelhouse.exists()
+        ):
+            package_map = _packages_distributions_from_python(
+                deps_venv / "bin" / "python"
+            )
             return lock_path, wheelhouse, package_map
 
         deps_root.mkdir(parents=True, exist_ok=True)
@@ -690,7 +903,8 @@ def sync_dependency_cache(
                 "install",
                 "-r",
                 str(source_requirements),
-            ],
+            ]
+            + (["--cache-dir", str(cache_dir)] if cache_dir is not None else []),
             "Failed to install top-level requirements into dependency cache",
         )
 
@@ -710,7 +924,8 @@ def sync_dependency_cache(
                 str(wheelhouse),
                 "-r",
                 str(lock_path),
-            ],
+            ]
+            + (["--cache-dir", str(cache_dir)] if cache_dir is not None else []),
             "Failed to prepare local dependency wheelhouse",
         )
 
@@ -723,6 +938,8 @@ def prewarm_shared_build_state(
     project_root: Path,
     build_dir: Path,
     package_manager: str = "auto",
+    existing_install_python: str | None = None,
+    debug: bool = False,
 ) -> SharedBuildState:
     """Compute reusable dependency and import analysis state once."""
 
@@ -730,6 +947,8 @@ def prewarm_shared_build_state(
         project_root=project_root,
         build_dir=build_dir,
         package_manager=package_manager,
+        existing_install_python=existing_install_python,
+        debug=debug,
     )
     analysis_cache = get_first_party_analysis_cache(project_root)
     return SharedBuildState(
@@ -773,7 +992,9 @@ def _runtime_python_file_signature(
         relative = path.relative_to(project_root)
         if not relative.parts or relative.parts[0] in excluded_roots:
             continue
-        if any(part.startswith(".") or part == "__pycache__" for part in relative.parts):
+        if any(
+            part.startswith(".") or part == "__pycache__" for part in relative.parts
+        ):
             continue
         try:
             stat = path.stat()
@@ -784,7 +1005,9 @@ def _runtime_python_file_signature(
     return tuple(entries)
 
 
-def _packages_distributions_from_python(python_executable: Path) -> dict[str, list[str]]:
+def _packages_distributions_from_python(
+    python_executable: Path,
+) -> dict[str, list[str]]:
     output = _run_checked(
         [
             str(python_executable),
@@ -810,9 +1033,7 @@ def _run_checked(
         return completed
 
     raise RuntimeError(
-        f"{failure_message}. "
-        f"stdout:\n{completed.stdout}\n"
-        f"stderr:\n{completed.stderr}"
+        f"{failure_message}. stdout:\n{completed.stdout}\nstderr:\n{completed.stderr}"
     )
 
 
@@ -852,9 +1073,7 @@ def build_debug_report(
         local_candidate = _local_root_candidate_path(root, project_root)
         if local_candidate is not None:
             location = local_candidate.relative_to(project_root).as_posix()
-            third_party_resolution_lines.append(
-                f"- {root}: local-module ({location})"
-            )
+            third_party_resolution_lines.append(f"- {root}: local-module ({location})")
             continue
 
         candidates = package_map.get(root, []) or package_map.get(root.lower(), [])

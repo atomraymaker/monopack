@@ -163,6 +163,14 @@ def parse_args(argv=None):
             "'auto' infers from project files."
         ),
     )
+    parser.add_argument(
+        "--existing-install-python",
+        default=os.environ.get("MONOPACK_EXISTING_INSTALL_PYTHON"),
+        help=(
+            "Optional Python executable path for an existing project install to reuse "
+            "local dependency cache artifacts during build cache sync."
+        ),
+    )
 
     parser.set_defaults(verify=_parse_env_bool("MONOPACK_VERIFY", True))
     parser.set_defaults(auto_fix=_parse_env_bool("MONOPACK_AUTO_FIX", False))
@@ -218,6 +226,8 @@ def main(argv=None):
                 project_root=project_root,
                 build_dir=build_dir,
                 package_manager=args.package_manager,
+                existing_install_python=args.existing_install_python,
+                debug=args.debug,
             )
 
         if jobs <= 1:
@@ -234,6 +244,7 @@ def main(argv=None):
                     debug=args.debug,
                     sha_outputs=sha_outputs,
                     package_manager=args.package_manager,
+                    existing_install_python=args.existing_install_python,
                     shared_state=shared_state,
                 )
                 print(build_target)
@@ -256,6 +267,7 @@ def main(argv=None):
                         debug=args.debug,
                         sha_outputs=sha_outputs,
                         package_manager=args.package_manager,
+                        existing_install_python=args.existing_install_python,
                         shared_state=shared_state,
                     )
                 return build_target, stderr_buffer.getvalue()
@@ -269,19 +281,17 @@ def main(argv=None):
                     pack_name = future_to_name[future]
                     try:
                         results[pack_name] = future.result()
-                    except Exception as exc:  # pragma: no cover - exercised via CLI path
+                    except (
+                        Exception
+                    ) as exc:  # pragma: no cover - exercised via CLI path
                         errors.append((pack_name, exc))
 
             if errors:
                 ordered_failures = sorted(errors, key=lambda item: item[0])
                 details = "\n".join(
-                    f"- {pack_name}: {error}"
-                    for pack_name, error in ordered_failures
+                    f"- {pack_name}: {error}" for pack_name, error in ordered_failures
                 )
-                raise RuntimeError(
-                    "One or more pack builds failed:\n"
-                    f"{details}"
-                )
+                raise RuntimeError(f"One or more pack builds failed:\n{details}")
 
             for pack_name in pack_names:
                 build_target, buffered_stderr = results[pack_name]

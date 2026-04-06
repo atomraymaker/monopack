@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "monopack"
-version = "0.3.1"
+version = "0.3.2"
 description = "Build focused Python Lambda pack bundles from source imports."
 readme = {file = "README.md", content-type = "text/markdown"}
 license = "MIT"

@@ -27,6 +27,7 @@ Exit codes:
 | `--jobs` | `auto` or integer | `auto` | Parallel workers for multi-pack builds. `auto` picks a conservative core-based value (capped) and falls back to serial with `--auto-fix`. |
 | `--sha-output` | comma list (`hex`,`b64`) | `hex` | Deploy-mode package digest output(s): `build/<pack>.package.sha256` and/or `build/<pack>.package.sha256.b64`. |
 | `--package-manager` | `auto`,`pip`,`uv`,`poetry`,`pipenv` | `auto` | Dependency source manager for cache preparation. `auto` infers from project files and errors when ambiguous. |
+| `--existing-install-python` | path | unset | Optional Python executable for an existing project install. When found, `monopack` reuses that install's pip cache to reduce remote dependency fetches during dependency-cache sync. |
 
 ## Environment variables
 
@@ -41,6 +42,7 @@ CLI flags override env vars. Env vars override built-in defaults.
 - `MONOPACK_DEBUG` (`1/0`, `true/false`, `yes/no`)
 - `MONOPACK_JOBS` (`auto` or positive integer)
 - `MONOPACK_PACKAGE_MANAGER` (`auto`, `pip`, `uv`, `poetry`, `pipenv`)
+- `MONOPACK_EXISTING_INSTALL_PYTHON` (path to Python executable)
 
 ## Validation rules
 
@@ -55,6 +57,8 @@ CLI flags override env vars. Env vars override built-in defaults.
 Dependency source note:
 
 - Source dependency files may be unpinned. `monopack` installs/syncs from the selected source and normalizes pinned versions from cache sync (`pip freeze`) for per-pack requirement slicing.
+- Lock authority remains `build/.deps/venv` (`pip freeze` there); existing-install reuse only speeds up downloads/cache hits.
+- Build output prints fallback details when `--existing-install-python` is provided but no reusable cache is found; reuse-hit details are printed in `--debug` mode.
 
 ## Examples
 

@@ -313,6 +313,38 @@ ModuleNotFoundError: No module named 'app.hidden.runtime_dep'
                     Path("/tmp/build"), Path("/tmp/build/requirements.txt")
                 )
 
+    def test_pip_install_target_retries_online_when_wheelhouse_install_fails(self):
+        first = subprocess.CompletedProcess(
+            args=["python", "-m", "pip", "install"],
+            returncode=1,
+            stdout="",
+            stderr="No matching distribution found",
+        )
+        second = subprocess.CompletedProcess(
+            args=["python", "-m", "pip", "install"],
+            returncode=0,
+            stdout="ok",
+            stderr="",
+        )
+
+        with mock.patch(
+            "monopack.build.subprocess.run", side_effect=[first, second]
+        ) as run:
+            _pip_install_target(
+                Path("/tmp/build"),
+                Path("/tmp/build/requirements.txt"),
+                find_links=Path("/tmp/wheelhouse"),
+                no_index=True,
+            )
+
+        self.assertEqual(run.call_count, 2)
+        first_call = run.call_args_list[0].args[0]
+        second_call = run.call_args_list[1].args[0]
+        self.assertIn("--no-index", first_call)
+        self.assertIn("--find-links", first_call)
+        self.assertNotIn("--no-index", second_call)
+        self.assertNotIn("--find-links", second_call)
+
     def test_prepare_source_requirements_uses_project_requirements_for_pip(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             project_root = Path(tmpdir)
@@ -513,6 +545,119 @@ ModuleNotFoundError: No module named 'app.hidden.runtime_dep'
             self.assertEqual(
                 prepare.call_args.kwargs["package_manager"],
                 "uv",
+            )
+
+    def test_sync_dependency_cache_reuses_discovered_pip_cache_when_available(self):
+        freeze_stdout = "requests==2.32.3\n"
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            project_root = Path(tmpdir) / "project"
+            build_dir = project_root / "build"
+            project_root.mkdir(parents=True)
+            (project_root / "requirements.txt").write_text(
+                "requests>=2\n",
+                encoding="utf-8",
+            )
+
+            run_checked_results = [
+                subprocess.CompletedProcess(
+                    args=["venv"], returncode=0, stdout="", stderr=""
+                ),
+                subprocess.CompletedProcess(
+                    args=["install"], returncode=0, stdout="", stderr=""
+                ),
+                subprocess.CompletedProcess(
+                    args=["freeze"], returncode=0, stdout=freeze_stdout, stderr=""
+                ),
+                subprocess.CompletedProcess(
+                    args=["download"], returncode=0, stdout="", stderr=""
+                ),
+            ]
+
+            with mock.patch(
+                "monopack.build._discover_existing_install_python",
+                return_value=(
+                    Path("/seed/.venv/bin/python"),
+                    "project:.venv/bin/python",
+                ),
+            ):
+                with mock.patch(
+                    "monopack.build._pip_cache_dir_for_python",
+                    return_value=Path("/seed/pip-cache"),
+                ):
+                    with mock.patch(
+                        "monopack.build._run_checked",
+                        side_effect=run_checked_results,
+                    ) as run_checked:
+                        with mock.patch(
+                            "monopack.build._packages_distributions_from_python",
+                            return_value={"requests": ["requests"]},
+                        ):
+                            sync_dependency_cache(
+                                project_root=project_root,
+                                build_dir=build_dir,
+                                package_manager="auto",
+                                existing_install_python=".venv/bin/python",
+                            )
+
+            install_command = run_checked.call_args_list[1].args[0]
+            download_command = run_checked.call_args_list[3].args[0]
+            self.assertIn("--cache-dir", install_command)
+            self.assertIn("/seed/pip-cache", install_command)
+            self.assertIn("--cache-dir", download_command)
+            self.assertIn("/seed/pip-cache", download_command)
+
+    def test_sync_dependency_cache_prints_when_no_existing_install_cache_found(self):
+        freeze_stdout = "requests==2.32.3\n"
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            project_root = Path(tmpdir) / "project"
+            build_dir = project_root / "build"
+            project_root.mkdir(parents=True)
+            (project_root / "requirements.txt").write_text(
+                "requests>=2\n",
+                encoding="utf-8",
+            )
+
+            run_checked_results = [
+                subprocess.CompletedProcess(
+                    args=["venv"], returncode=0, stdout="", stderr=""
+                ),
+                subprocess.CompletedProcess(
+                    args=["install"], returncode=0, stdout="", stderr=""
+                ),
+                subprocess.CompletedProcess(
+                    args=["freeze"], returncode=0, stdout=freeze_stdout, stderr=""
+                ),
+                subprocess.CompletedProcess(
+                    args=["download"], returncode=0, stdout="", stderr=""
+                ),
+            ]
+
+            with mock.patch(
+                "monopack.build._discover_existing_install_python",
+                return_value=(None, "no install candidate found"),
+            ):
+                with mock.patch(
+                    "monopack.build._run_checked",
+                    side_effect=run_checked_results,
+                ):
+                    with mock.patch(
+                        "monopack.build._packages_distributions_from_python",
+                        return_value={"requests": ["requests"]},
+                    ):
+                        with mock.patch("builtins.print") as print_mock:
+                            sync_dependency_cache(
+                                project_root=project_root,
+                                build_dir=build_dir,
+                                package_manager="auto",
+                                existing_install_python=".venv/bin/python",
+                            )
+
+            messages = [call.args[0] for call in print_mock.call_args_list]
+            self.assertIn(
+                "[build] No existing install cache found; using normal dependency cache sync.",
+                messages,
             )
 
     def test_create_build_artifact_zip_writes_files_with_sorted_paths(self):

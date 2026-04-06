@@ -10,13 +10,17 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from monopack.build import build_pack
 from monopack.cli import main as cli_main
 from monopack.inline_config import parse_inline_config
-from helpers import assert_files_exist, assert_paths_not_exist, fixture_project, run_cli_captured
+from helpers import (
+    assert_files_exist,
+    assert_paths_not_exist,
+    fixture_project,
+    run_cli_captured,
+)
 
 
 class BuildIntegrationTests(unittest.TestCase):
     def test_build_pack_creates_expected_files(self):
         with fixture_project("simple") as project_root:
-
             build_target = build_pack(
                 pack_name="users_get",
                 packs_dir=project_root / "packs",
@@ -38,7 +42,9 @@ class BuildIntegrationTests(unittest.TestCase):
             package_sha_path = project_root / "build" / "users_get.package.sha256"
             self.assertTrue(artifact_path.is_file())
             self.assertTrue(package_sha_path.is_file())
-            self.assertRegex(package_sha_path.read_text(encoding="utf-8"), r"^[0-9a-f]{64}\n$")
+            self.assertRegex(
+                package_sha_path.read_text(encoding="utf-8"), r"^[0-9a-f]{64}\n$"
+            )
             with zipfile.ZipFile(artifact_path) as archive:
                 names = archive.namelist()
                 self.assertIn("packs/users_get.py", names)
@@ -47,7 +53,6 @@ class BuildIntegrationTests(unittest.TestCase):
 
     def test_build_pack_writes_b64_package_sha_when_requested(self):
         with fixture_project("simple") as project_root:
-
             build_target = build_pack(
                 pack_name="users_get",
                 packs_dir=project_root / "packs",
@@ -58,10 +63,14 @@ class BuildIntegrationTests(unittest.TestCase):
             )
 
             self.assertEqual(build_target, project_root / "build" / "users_get")
-            self.assertTrue((project_root / "build" / "users_get.package.sha256").is_file())
+            self.assertTrue(
+                (project_root / "build" / "users_get.package.sha256").is_file()
+            )
             b64_path = project_root / "build" / "users_get.package.sha256.b64"
             self.assertTrue(b64_path.is_file())
-            self.assertRegex(b64_path.read_text(encoding="utf-8"), r"^[A-Za-z0-9+/]+=*\n$")
+            self.assertRegex(
+                b64_path.read_text(encoding="utf-8"), r"^[A-Za-z0-9+/]+=*\n$"
+            )
 
     def test_cli_build_path_creates_expected_files(self):
         with fixture_project("simple") as project_root:
@@ -112,7 +121,6 @@ class BuildIntegrationTests(unittest.TestCase):
 
     def test_build_pack_copies_reachable_first_party_modules(self):
         with fixture_project("shared_code") as project_root:
-
             build_target = build_pack(
                 pack_name="users_get",
                 packs_dir=project_root / "packs",
@@ -136,7 +144,6 @@ class BuildIntegrationTests(unittest.TestCase):
 
     def test_build_pack_triggers_pip_install_for_third_party_requirements(self):
         with fixture_project("third_party") as project_root:
-
             with mock.patch("monopack.build._pip_install_target") as pip_install:
                 build_target = build_pack(
                     pack_name="users_get",
@@ -168,7 +175,6 @@ class BuildIntegrationTests(unittest.TestCase):
 
     def test_build_pack_copies_modules_discovered_via_relative_imports(self):
         with fixture_project("relative_imports") as project_root:
-
             build_target = build_pack(
                 pack_name="users_get",
                 packs_dir=project_root / "packs",
@@ -196,7 +202,6 @@ class BuildIntegrationTests(unittest.TestCase):
 
     def test_build_pack_handles_first_party_cycles(self):
         with fixture_project("cycles") as project_root:
-
             build_target = build_pack(
                 pack_name="users_get",
                 packs_dir=project_root / "packs",
@@ -205,11 +210,12 @@ class BuildIntegrationTests(unittest.TestCase):
                 verify=True,
             )
 
-            assert_files_exist(self, build_target, ["app/cycle/alpha.py", "app/cycle/beta.py"])
+            assert_files_exist(
+                self, build_target, ["app/cycle/alpha.py", "app/cycle/beta.py"]
+            )
 
     def test_build_pack_resolves_submodule_from_from_import(self):
         with fixture_project("from_import_submodule") as project_root:
-
             build_target = build_pack(
                 pack_name="users_get",
                 packs_dir=project_root / "packs",
@@ -231,7 +237,6 @@ class BuildIntegrationTests(unittest.TestCase):
 
     def test_build_pack_ignores_type_checking_imports_for_graph_and_requirements(self):
         with fixture_project("type_checking_imports") as project_root:
-
             build_target = build_pack(
                 pack_name="users_get",
                 packs_dir=project_root / "packs",
@@ -254,7 +259,6 @@ class BuildIntegrationTests(unittest.TestCase):
 
     def test_build_pack_includes_transitive_third_party_requirements(self):
         with fixture_project("transitive_deps") as project_root:
-
             with mock.patch("monopack.build._pip_install_target"):
                 build_target = build_pack(
                     pack_name="users_get",
@@ -271,7 +275,6 @@ class BuildIntegrationTests(unittest.TestCase):
 
     def test_deploy_mode_does_not_copy_tests_directory(self):
         with fixture_project("test_mode") as project_root:
-
             with mock.patch("monopack.build._pip_install_target"):
                 build_target = build_pack(
                     pack_name="users_get",
@@ -286,7 +289,6 @@ class BuildIntegrationTests(unittest.TestCase):
 
     def test_test_mode_copies_tests_directory(self):
         with fixture_project("test_mode") as project_root:
-
             with mock.patch("monopack.build._pip_install_target"):
                 build_target = build_pack(
                     pack_name="users_get",
@@ -301,7 +303,6 @@ class BuildIntegrationTests(unittest.TestCase):
 
     def test_test_mode_includes_runtime_and_test_only_requirements(self):
         with fixture_project("test_mode") as project_root:
-
             with mock.patch("monopack.build._pip_install_target"):
                 build_target = build_pack(
                     pack_name="users_get",
@@ -319,12 +320,11 @@ class BuildIntegrationTests(unittest.TestCase):
 
     def test_test_mode_verify_runs_unittest_discovery(self):
         with fixture_project("test_mode") as project_root:
-
-            with mock.patch("monopack.build._pip_install_target"), mock.patch(
-                "monopack.build.run_verifier_script"
-            ) as run_verifier, mock.patch(
-                "monopack.build.run_unittest_discovery"
-            ) as run_unittests:
+            with (
+                mock.patch("monopack.build._pip_install_target"),
+                mock.patch("monopack.build.run_verifier_script") as run_verifier,
+                mock.patch("monopack.build.run_unittest_discovery") as run_unittests,
+            ):
                 build_target = build_pack(
                     pack_name="users_get",
                     packs_dir=project_root / "packs",
@@ -335,7 +335,9 @@ class BuildIntegrationTests(unittest.TestCase):
                 )
 
             run_verifier.assert_called_once()
-            run_unittests.assert_called_once_with(build_target / "tests", cwd=build_target)
+            run_unittests.assert_called_once_with(
+                build_target / "tests", cwd=build_target
+            )
 
     def test_test_mode_fails_when_no_relevant_tests_exist(self):
         with fixture_project("kitchen_sink") as project_root:
@@ -368,11 +370,11 @@ class BuildIntegrationTests(unittest.TestCase):
 
     def test_deploy_with_tests_runs_and_strips_tests_before_zip(self):
         with fixture_project("test_mode") as project_root:
-            with mock.patch("monopack.build._pip_install_target"), mock.patch(
-                "monopack.build.run_verifier_script"
-            ) as run_verifier, mock.patch(
-                "monopack.build.run_unittest_discovery"
-            ) as run_unittests:
+            with (
+                mock.patch("monopack.build._pip_install_target"),
+                mock.patch("monopack.build.run_verifier_script") as run_verifier,
+                mock.patch("monopack.build.run_unittest_discovery") as run_unittests,
+            ):
                 build_target = build_pack(
                     pack_name="users_get",
                     packs_dir=project_root / "packs",
@@ -384,7 +386,9 @@ class BuildIntegrationTests(unittest.TestCase):
                 )
 
             run_verifier.assert_called_once()
-            run_unittests.assert_called_once_with(build_target / "tests", cwd=build_target)
+            run_unittests.assert_called_once_with(
+                build_target / "tests", cwd=build_target
+            )
             assert_paths_not_exist(self, build_target, ["tests"])
             artifact_path = project_root / "build" / "users_get.zip"
             self.assertTrue(artifact_path.is_file())
@@ -395,7 +399,6 @@ class BuildIntegrationTests(unittest.TestCase):
 
     def test_test_mode_monorepo_split_users_includes_only_users_tests(self):
         with fixture_project("monorepo_split") as project_root:
-
             with mock.patch("monopack.build._pip_install_target"):
                 build_target = build_pack(
                     pack_name="users_get",
@@ -426,7 +429,6 @@ class BuildIntegrationTests(unittest.TestCase):
 
     def test_test_mode_monorepo_split_billing_includes_only_billing_tests(self):
         with fixture_project("monorepo_split") as project_root:
-
             with mock.patch("monopack.build._pip_install_target"):
                 build_target = build_pack(
                     pack_name="billing_charge",
@@ -457,7 +459,6 @@ class BuildIntegrationTests(unittest.TestCase):
 
     def test_test_mode_monorepo_split_scopes_test_only_requirements_per_function(self):
         with fixture_project("monorepo_split") as project_root:
-
             with mock.patch("monopack.build._pip_install_target"):
                 users_build_target = build_pack(
                     pack_name="users_get",
@@ -488,7 +489,6 @@ class BuildIntegrationTests(unittest.TestCase):
 
     def test_build_pack_applies_inline_config_overrides(self):
         with fixture_project("config_overrides") as project_root:
-
             with mock.patch("monopack.build._pip_install_target"):
                 build_target = build_pack(
                     pack_name="users_get",
@@ -509,14 +509,20 @@ class BuildIntegrationTests(unittest.TestCase):
             entrypoint = project_root / "packs" / "users_get.py"
             original_source = entrypoint.read_text(encoding="utf-8")
 
-            def fake_pip_install(build_target: Path, requirements_path: Path, **_kwargs) -> None:
+            def fake_pip_install(
+                build_target: Path, requirements_path: Path, **_kwargs
+            ) -> None:
                 self.assertEqual(
                     requirements_path.read_text(encoding="utf-8"),
                     "idna==3.10\n",
                 )
-                (build_target / "idna.py").write_text("__version__ = '3.10'\n", encoding="utf-8")
+                (build_target / "idna.py").write_text(
+                    "__version__ = '3.10'\n", encoding="utf-8"
+                )
 
-            with mock.patch("monopack.build._pip_install_target", side_effect=fake_pip_install) as pip_install:
+            with mock.patch(
+                "monopack.build._pip_install_target", side_effect=fake_pip_install
+            ) as pip_install:
                 build_target = build_pack(
                     pack_name="users_get",
                     packs_dir=project_root / "packs",
@@ -566,7 +572,9 @@ class BuildIntegrationTests(unittest.TestCase):
         with fixture_project("kitchen_sink") as project_root:
             entrypoint = project_root / "packs" / "users_get.py"
             (project_root / "app" / "hidden").mkdir(parents=True, exist_ok=True)
-            (project_root / "app" / "hidden" / "__init__.py").write_text("", encoding="utf-8")
+            (project_root / "app" / "hidden" / "__init__.py").write_text(
+                "", encoding="utf-8"
+            )
             (project_root / "app" / "hidden" / "runtime_dep.py").write_text(
                 "def marker():\n    return 'ok'\n",
                 encoding="utf-8",
@@ -578,10 +586,14 @@ class BuildIntegrationTests(unittest.TestCase):
                 "ModuleNotFoundError: No module named 'app.hidden.runtime_dep'\n"
             )
 
-            with mock.patch("monopack.build.run_verifier_script", return_value=None), mock.patch(
-                "monopack.build.run_unittest_discovery",
-                side_effect=[test_failure, None],
-            ) as run_unittests, mock.patch("monopack.build._pip_install_target"):
+            with (
+                mock.patch("monopack.build.run_verifier_script", return_value=None),
+                mock.patch(
+                    "monopack.build.run_unittest_discovery",
+                    side_effect=[test_failure, None],
+                ) as run_unittests,
+                mock.patch("monopack.build._pip_install_target"),
+            ):
                 build_pack(
                     pack_name="users_get",
                     packs_dir=project_root / "packs",
@@ -602,7 +614,9 @@ class BuildIntegrationTests(unittest.TestCase):
         with fixture_project("auto_fix_third_party") as project_root:
             entrypoint = project_root / "packs" / "users_get.py"
 
-            def fake_pip_install(build_target: Path, requirements_path: Path, **_kwargs) -> None:
+            def fake_pip_install(
+                build_target: Path, requirements_path: Path, **_kwargs
+            ) -> None:
                 self.assertEqual(
                     requirements_path.read_text(encoding="utf-8"),
                     "requests==2.32.3\n",
@@ -612,7 +626,21 @@ class BuildIntegrationTests(unittest.TestCase):
                     encoding="utf-8",
                 )
 
-            with mock.patch("monopack.build._pip_install_target", side_effect=fake_pip_install) as pip_install:
+            verification_error = RuntimeError(
+                "Build verification failed. stdout:\n\nstderr:\n"
+                "Traceback (most recent call last):\n"
+                "ModuleNotFoundError: No module named 'requests'\n"
+            )
+
+            with (
+                mock.patch(
+                    "monopack.build._pip_install_target", side_effect=fake_pip_install
+                ) as pip_install,
+                mock.patch(
+                    "monopack.build.run_verifier_script",
+                    side_effect=[verification_error, None],
+                ),
+            ):
                 build_target = build_pack(
                     pack_name="users_get",
                     packs_dir=project_root / "packs",
@@ -629,14 +657,18 @@ class BuildIntegrationTests(unittest.TestCase):
                 (build_target / "requirements.txt").read_text(encoding="utf-8"),
                 "requests==2.32.3\n",
             )
-            self.assertIn("requests", {name.lower() for name in parsed.extra_distributions})
+            self.assertIn(
+                "requests", {name.lower() for name in parsed.extra_distributions}
+            )
             pip_install.assert_called_once()
 
     def test_build_pack_auto_fix_distribution_aliases_use_mapped_names(self):
         with fixture_project("distribution_aliases") as project_root:
             entrypoint = project_root / "packs" / "users_get.py"
 
-            def fake_pip_install(build_target: Path, requirements_path: Path, **_kwargs) -> None:
+            def fake_pip_install(
+                build_target: Path, requirements_path: Path, **_kwargs
+            ) -> None:
                 requirements_text = requirements_path.read_text(encoding="utf-8")
                 if "PyYAML==6.0.2\n" in requirements_text:
                     (build_target / "yaml.py").write_text(
@@ -659,23 +691,27 @@ class BuildIntegrationTests(unittest.TestCase):
                     f"ModuleNotFoundError: No module named '{module_name}'\n"
                 )
 
-            with mock.patch(
-                "monopack.build.packages_distributions",
-                return_value={
-                    "yaml": ["PyYAML"],
-                    "dateutil": ["python-dateutil"],
-                },
-            ), mock.patch(
-                "monopack.build._pip_install_target",
-                side_effect=fake_pip_install,
-            ), mock.patch(
-                "monopack.build.run_verifier_script",
-                side_effect=[
-                    verification_error("yaml"),
-                    verification_error("dateutil"),
-                    None,
-                ],
-            ) as pip_install:
+            with (
+                mock.patch(
+                    "monopack.build.packages_distributions",
+                    return_value={
+                        "yaml": ["PyYAML"],
+                        "dateutil": ["python-dateutil"],
+                    },
+                ),
+                mock.patch(
+                    "monopack.build._pip_install_target",
+                    side_effect=fake_pip_install,
+                ),
+                mock.patch(
+                    "monopack.build.run_verifier_script",
+                    side_effect=[
+                        verification_error("yaml"),
+                        verification_error("dateutil"),
+                        None,
+                    ],
+                ) as pip_install,
+            ):
                 build_target = build_pack(
                     pack_name="users_get",
                     packs_dir=project_root / "packs",
@@ -696,7 +732,6 @@ class BuildIntegrationTests(unittest.TestCase):
 
     def test_kitchen_sink_users_test_mode_scopes_tests_and_requirements(self):
         with fixture_project("kitchen_sink") as project_root:
-
             with mock.patch("monopack.build._pip_install_target"):
                 build_target = build_pack(
                     pack_name="users_get",
@@ -727,7 +762,6 @@ class BuildIntegrationTests(unittest.TestCase):
 
     def test_kitchen_sink_billing_deploy_mode_excludes_tests(self):
         with fixture_project("kitchen_sink") as project_root:
-
             with mock.patch("monopack.build._pip_install_target"):
                 build_target = build_pack(
                     pack_name="billing_charge",
@@ -740,16 +774,36 @@ class BuildIntegrationTests(unittest.TestCase):
 
             assert_paths_not_exist(self, build_target, ["tests"])
 
-    def test_kitchen_sink_auto_fix_dynamic_import_updates_inline_block_and_succeeds(self):
+    def test_kitchen_sink_auto_fix_dynamic_import_updates_inline_block_and_succeeds(
+        self,
+    ):
         with fixture_project("kitchen_sink") as project_root:
             entrypoint = project_root / "packs" / "reports_refresh.py"
 
-            def fake_pip_install(build_target: Path, requirements_path: Path, **_kwargs) -> None:
+            def fake_pip_install(
+                build_target: Path, requirements_path: Path, **_kwargs
+            ) -> None:
                 requirements_text = requirements_path.read_text(encoding="utf-8")
                 self.assertIn("idna==3.10\n", requirements_text)
-                (build_target / "idna.py").write_text("__version__ = '3.10'\n", encoding="utf-8")
+                (build_target / "idna.py").write_text(
+                    "__version__ = '3.10'\n", encoding="utf-8"
+                )
 
-            with mock.patch("monopack.build._pip_install_target", side_effect=fake_pip_install):
+            verification_error = RuntimeError(
+                "Build verification failed. stdout:\n\nstderr:\n"
+                "Traceback (most recent call last):\n"
+                "ModuleNotFoundError: No module named 'idna'\n"
+            )
+
+            with (
+                mock.patch(
+                    "monopack.build._pip_install_target", side_effect=fake_pip_install
+                ),
+                mock.patch(
+                    "monopack.build.run_verifier_script",
+                    side_effect=[verification_error, None],
+                ),
+            ):
                 build_target = build_pack(
                     pack_name="reports_refresh",
                     packs_dir=project_root / "packs",
@@ -784,7 +838,9 @@ class BuildIntegrationTests(unittest.TestCase):
 
             self.assertEqual(entrypoint.read_text(encoding="utf-8"), original_source)
 
-    def test_cli_auto_fix_off_by_default_keeps_failure_and_does_not_modify_entrypoint(self):
+    def test_cli_auto_fix_off_by_default_keeps_failure_and_does_not_modify_entrypoint(
+        self,
+    ):
         with fixture_project("auto_fix_first_party") as project_root:
             entrypoint = project_root / "packs" / "users_get.py"
             original_source = entrypoint.read_text(encoding="utf-8")

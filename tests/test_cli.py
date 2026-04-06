@@ -38,6 +38,7 @@ class CliTests(unittest.TestCase):
         self.assertEqual(args.jobs, "auto")
         self.assertEqual(args.sha_output, "hex")
         self.assertEqual(args.package_manager, "auto")
+        self.assertIsNone(args.existing_install_python)
 
     def test_parse_args_custom_values(self):
         with mock.patch.dict("os.environ", {}, clear=True):
@@ -60,6 +61,8 @@ class CliTests(unittest.TestCase):
                     "hex,b64",
                     "--package-manager",
                     "poetry",
+                    "--existing-install-python",
+                    ".venv/bin/python",
                 ]
             )
 
@@ -74,6 +77,7 @@ class CliTests(unittest.TestCase):
         self.assertEqual(args.jobs, "3")
         self.assertEqual(args.sha_output, "hex,b64")
         self.assertEqual(args.package_manager, "poetry")
+        self.assertEqual(args.existing_install_python, ".venv/bin/python")
 
     def test_parse_args_version_flag(self):
         stdout = io.StringIO()
@@ -133,6 +137,19 @@ class CliTests(unittest.TestCase):
         self.assertTrue(args.with_tests)
         self.assertTrue(args.debug)
         self.assertEqual(args.jobs, "5")
+        self.assertIsNone(args.existing_install_python)
+
+    def test_parse_args_uses_existing_install_python_env_default(self):
+        with mock.patch.dict(
+            "os.environ",
+            {
+                "MONOPACK_EXISTING_INSTALL_PYTHON": "/tmp/custom-python",
+            },
+            clear=True,
+        ):
+            args = cli.parse_args([])
+
+        self.assertEqual(args.existing_install_python, "/tmp/custom-python")
 
     def test_parse_args_cli_flags_override_env_values(self):
         with mock.patch.dict(
@@ -235,8 +252,7 @@ class CliTests(unittest.TestCase):
             (project_root / "app" / "__init__.py").write_text("", encoding="utf-8")
             (app_users_dir / "__init__.py").write_text("", encoding="utf-8")
             (app_users_dir / "service.py").write_text(
-                "def get_profile():\n"
-                "    return {'id': 1}\n",
+                "def get_profile():\n    return {'id': 1}\n",
                 encoding="utf-8",
             )
             (packs_dir / "users_get.py").write_text(
@@ -322,12 +338,14 @@ class CliTests(unittest.TestCase):
             stdout = io.StringIO()
             stderr = io.StringIO()
             with redirect_stdout(stdout), redirect_stderr(stderr):
-                result = cli.main([
-                    "--packs-dir",
-                    str(packs_dir),
-                    "--build-dir",
-                    str(build_dir),
-                ])
+                result = cli.main(
+                    [
+                        "--packs-dir",
+                        str(packs_dir),
+                        "--build-dir",
+                        str(build_dir),
+                    ]
+                )
 
         self.assertEqual(result, 0)
         self.assertIn(str(build_dir / "users_get"), stdout.getvalue())
@@ -344,13 +362,15 @@ class CliTests(unittest.TestCase):
             stdout = io.StringIO()
             stderr = io.StringIO()
             with redirect_stdout(stdout), redirect_stderr(stderr):
-                result = cli.main([
-                    "users_get",
-                    "--packs-dir",
-                    str(packs_dir),
-                    "--build-dir",
-                    str(build_dir),
-                ])
+                result = cli.main(
+                    [
+                        "users_get",
+                        "--packs-dir",
+                        str(packs_dir),
+                        "--build-dir",
+                        str(build_dir),
+                    ]
+                )
 
         self.assertEqual(result, 0)
         self.assertEqual(stdout.getvalue(), f"{build_dir / 'users_get'}\n")
@@ -494,7 +514,9 @@ class CliTests(unittest.TestCase):
             (packs_dir / "users_get.py").write_text("", encoding="utf-8")
             (project_root / "uv.lock").write_text("", encoding="utf-8")
 
-            with mock.patch("monopack.cli.build_pack", return_value=build_dir / "users_get") as build:
+            with mock.patch(
+                "monopack.cli.build_pack", return_value=build_dir / "users_get"
+            ) as build:
                 result = cli.main(
                     [
                         "users_get",
@@ -509,6 +531,36 @@ class CliTests(unittest.TestCase):
 
         self.assertEqual(result, 0)
         self.assertEqual(build.call_args.kwargs["package_manager"], "uv")
+
+    def test_main_threads_existing_install_python_to_build_pack(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            project_root = Path(tmpdir) / "project"
+            packs_dir = project_root / "packs"
+            build_dir = project_root / "build"
+            packs_dir.mkdir(parents=True)
+            (packs_dir / "users_get.py").write_text("", encoding="utf-8")
+            (project_root / "requirements.txt").write_text("", encoding="utf-8")
+
+            with mock.patch(
+                "monopack.cli.build_pack", return_value=build_dir / "users_get"
+            ) as build:
+                result = cli.main(
+                    [
+                        "users_get",
+                        "--packs-dir",
+                        str(packs_dir),
+                        "--build-dir",
+                        str(build_dir),
+                        "--existing-install-python",
+                        ".venv/bin/python",
+                    ]
+                )
+
+        self.assertEqual(result, 0)
+        self.assertEqual(
+            build.call_args.kwargs["existing_install_python"],
+            ".venv/bin/python",
+        )
 
     def test_main_returns_error_for_invalid_discovered_pack_name(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -556,9 +608,7 @@ class CliTests(unittest.TestCase):
             stdout = io.StringIO()
             stderr = io.StringIO()
             with redirect_stdout(stdout), redirect_stderr(stderr):
-                result = cli.main(
-                    ["--packs-dir", str(packs_dir), "--mode", "test"]
-                )
+                result = cli.main(["--packs-dir", str(packs_dir), "--mode", "test"])
 
         self.assertEqual(result, 2)
         self.assertEqual(stdout.getvalue(), "")
@@ -597,7 +647,9 @@ class CliTests(unittest.TestCase):
             packs_dir = project_root / "packs"
             build_dir = project_root / "build"
 
-            with mock.patch("monopack.cli.build_pack", return_value=build_dir / "users_get") as build:
+            with mock.patch(
+                "monopack.cli.build_pack", return_value=build_dir / "users_get"
+            ) as build:
                 result = cli.main(
                     [
                         "users_get",
@@ -622,7 +674,9 @@ class CliTests(unittest.TestCase):
             packs_dir = project_root / "packs"
             build_dir = project_root / "build"
 
-            with mock.patch("monopack.cli.build_pack", return_value=build_dir / "users_get") as build:
+            with mock.patch(
+                "monopack.cli.build_pack", return_value=build_dir / "users_get"
+            ) as build:
                 result = cli.main(
                     [
                         "users_get",
@@ -647,7 +701,9 @@ class CliTests(unittest.TestCase):
             packs_dir = project_root / "packs"
             build_dir = project_root / "build"
 
-            with mock.patch("monopack.cli.build_pack", return_value=build_dir / "users_get") as build:
+            with mock.patch(
+                "monopack.cli.build_pack", return_value=build_dir / "users_get"
+            ) as build:
                 result = cli.main(
                     [
                         "users_get",
@@ -671,7 +727,9 @@ class CliTests(unittest.TestCase):
             packs_dir = project_root / "packs"
             build_dir = project_root / "build"
 
-            with mock.patch("monopack.cli.build_pack", return_value=build_dir / "users_get") as build:
+            with mock.patch(
+                "monopack.cli.build_pack", return_value=build_dir / "users_get"
+            ) as build:
                 result = cli.main(
                     [
                         "users_get",
@@ -708,7 +766,9 @@ class CliTests(unittest.TestCase):
                 "monopack.cli.prewarm_shared_build_state",
                 return_value=sentinel_shared_state,
             ) as prewarm:
-                with mock.patch("monopack.cli.build_pack", side_effect=_fake_build) as build:
+                with mock.patch(
+                    "monopack.cli.build_pack", side_effect=_fake_build
+                ) as build:
                     with redirect_stdout(stdout), redirect_stderr(stderr):
                         result = cli.main(
                             [

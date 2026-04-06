@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.2
+
+- Added optional existing-install cache reuse (`--existing-install-python` / `MONOPACK_EXISTING_INSTALL_PYTHON`) to reduce remote dependency fetches during dependency-cache sync.
+- Kept lock authority in `build/.deps/venv` while adding fallback build output and local-wheelhouse-to-online install fallback behavior.
+
 ## 0.3.1
 
 - Added `--package-manager` with `auto|pip|uv|poetry|pipenv` to support non-pip lock/export flows.
