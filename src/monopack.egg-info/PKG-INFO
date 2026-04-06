@@ -1,6 +1,6 @@
 Metadata-Version: 2.4
 Name: monopack
-Version: 0.3.1
+Version: 0.3.2
 Summary: Build focused Python Lambda pack bundles from source imports.
 Author: monopack maintainers
 License-Expression: MIT
@@ -24,124 +24,94 @@ Dynamic: license-file
 
 # monopack
 
-`monopack` builds per-pack Python Lambda bundles from a monolith-style repo.
+`monopack` splits a Python monorepo into smaller, entrypoint-focused packages.
+
+Packs are defined by files in `packs/` (`packs/<name>.py`). For each pack, `monopack` traces imports, copies reachable first-party files, installs only the needed third-party distributions, and writes an isolated build output.
+
+If `packs/` is missing, or no pack files are found, the CLI exits with a clear error.
 
 ## Background
 
-Go works well for multi-Lambda projects because one codebase can expose multiple `cmd` entrypoints and build each pack with only what it needs.
+This was inspired by multi-function Lambda packaging, where smaller per-entrypoint artifacts often help cold start performance and reduce package bloat. The same approach works for any Python monorepo where you want tighter per-entrypoint packaging.
 
-Python workflows are usually less ergonomic at that scale:
+## Why use it
 
-- AWS SAM and Serverless framework commonly package one Python artifact per project.
-- Per-pack folder layouts can make shared code awkward.
-- Workarounds such as local packages, symlinks, or copied shared folders often add maintenance overhead.
+- Smaller per-pack artifacts from one shared codebase.
+- Tighter dependency surface for each pack.
+- Easier to inspect what each entrypoint actually ships.
 
-`monopack` is intended to make Python feel closer to that Go workflow without changing your project into N separate services. It takes a larger codebase and produces per-pack zip artifacts by:
+## Basic usage
 
-- tracing imports from each pack entrypoint,
-- copying reachable first-party files,
-- deriving a minimal pinned `requirements.txt` subset for third-party imports,
-- installing only that dependency subset into the build target,
-- and running optional verification/tests to increase confidence that each split artifact works in isolation.
-
-It is intentionally conservative: this is import-based trimming with guardrails, not full tree-shaking or whole-program optimization. It aims to cover common Python import patterns used in real projects, while keeping behavior explicit and testable.
-
-## What monopack does
-
-- Builds one or many packs from `packs/*.py` into `build/<pack_name>/`.
-- In `deploy` mode, writes deploy zip artifacts at `build/<pack_name>.zip`.
-- In `deploy` mode, writes package digest helper file(s) (`build/<pack_name>.package.sha256` by default).
-- In `test` mode, copies relevant tests and runs them in the build target (no zip output).
-- Uses requirements exported from `pip`, `uv`, `poetry`, or `pipenv` (`--package-manager`, default `auto`) and normalizes to pinned lock state during cache sync.
-- Supports optional auto-fix for missing-module verification failures (`--auto-fix`, opt-in).
-
-## Quickstart
-
-Project expectations:
-
-- `packs/` directory with pack entrypoint files (`<name>.py`).
-- One dependency source signal in project root: `requirements.txt`, `uv.lock`, `poetry.lock`/`pyproject.toml` (`[tool.poetry]`), or `Pipfile`/`Pipfile.lock`.
-- Optional `tests/` directory when using `--mode test`.
-
-Build one pack in deploy mode:
+Build one pack:
 
 ```bash
-PYTHONPATH=src python -m monopack users_get \
-  --packs-dir packs \
-  --build-dir build
+python -m monopack users_get
 ```
 
-Run confidence build in test mode:
+Build all discovered packs in `packs/*.py`:
 
 ```bash
-PYTHONPATH=src python -m monopack users_get \
-  --packs-dir packs \
-  --build-dir /tmp/monopack-build \
-  --mode test
+python -m monopack
 ```
 
-Build all packs discovered in `packs/*.py` (no target argument):
+Run test-mode build for one pack:
 
 ```bash
-PYTHONPATH=src python -m monopack \
-  --packs-dir packs \
-  --build-dir build
+python -m monopack users_get --mode test
 ```
 
-## CLI usage
-
-Basic form:
+Deploy-mode build with test gate:
 
 ```bash
-PYTHONPATH=src python -m monopack [pack_name] [options]
+python -m monopack users_get --mode deploy --with-tests
 ```
 
-Key flags for real-project usage:
+## Verify and test mode
 
-- `--version`: prints the installed `monopack` version and exits.
-- `--mode deploy|test`: deploy builds runtime payload + zip; test builds payload + tests (no zip).
-- `--with-tests`: deploy mode only; runs relevant tests before finalizing deploy payload.
-- `--verify` / `--no-verify`: verifier is on by default.
-- `--auto-fix`: opt-in auto-repair loop for missing imports during verify.
-- `--debug`: emit aggregated import/dependency resolution report to stderr.
-- `--jobs`: parallel workers for multi-pack builds (`auto` default).
-- `--sha-output`: comma-separated package digest outputs for deploy mode (`hex`, `b64`; default `hex`).
-- `--package-manager`: dependency source manager (`auto`, `pip`, `uv`, `poetry`, `pipenv`; default `auto`).
+- `--verify` (default on): runs a generated verifier script inside the built pack to check importability of selected modules and validate pack entrypoint expectations (including `lambda_handler` on the pack module).
+- `--mode test`: builds the runtime payload, copies only relevant tests for that pack, runs them inside the build target, and does not write a deploy zip.
+- `--with-tests`: same test execution behavior as above, but in `deploy` mode so zip output is still produced if checks pass.
 
-Package digest output guidance:
+`tests/` is required only when test execution is enabled (`--mode test` or `--with-tests`).
 
-- `hex` (`.package.sha256`): general CI/script diffing and human-readable checks.
-- `b64` (`.package.sha256.b64`): Terraform-style workflows that prefer base64 digest values.
-- Use both when needed: `--sha-output hex,b64`.
+## CLI options
 
-For full argument behavior and validation details, see `docs/cli.md`.
+Command form:
 
-## Constraints and limits
+```bash
+python -m monopack [pack_name] [options]
+```
 
-- Function discovery is shallow: only `packs/*.py` (excluding names starting with `_`).
-- Pack names must use letters, numbers, and underscores; pack names cannot include `/`, `\\`, or `.`.
-- Build directory must differ from packs directory and cannot be nested inside it.
-- Project dependency inputs may be unpinned; `monopack` pins effective versions from cache sync (`pip freeze`) before per-pack requirement filtering.
-- First-party graph traversal follows imports that resolve to local modules under the same project root as `packs/` (excluding `tests/`).
-- Auto-fix only handles `ModuleNotFoundError` flows and retries up to 3 times when enabled.
+| Option | Default | Why it is useful |
+| --- | --- | --- |
+| `pack_name` (positional, optional) | builds all discovered packs | Target a single pack while iterating locally or in CI. |
+| `--version` | n/a | Print installed CLI version and exit. |
+| `--packs-dir` | `packs` | Use a non-default entrypoint directory. |
+| `--build-dir` | `build` | Change output location (for CI temp dirs or custom build roots). |
+| `--mode deploy\|test` | `deploy` | `deploy` produces runtime payload + zip, `test` runs pack-scoped tests in build output (no zip). |
+| `--with-tests` | `False` | Run pack-scoped tests as a gate in deploy mode. |
+| `--verify` / `--no-verify` | verify on | Keep safety checks on by default; disable for faster local loops. |
+| `--auto-fix` | `False` | Retry missing-module verification failures by updating managed inline config blocks (up to 3 attempts). |
+| `--debug` | `False` | Print detailed import and dependency resolution diagnostics to stderr. |
+| `--jobs` | `auto` | Parallelize multi-pack builds; set a number for fixed worker count. |
+| `--sha-output` | `hex` | Choose deploy digest output format(s): `hex`, `b64`, or `hex,b64`. |
+| `--package-manager` | `auto` | Select dependency source flow: `auto`, `pip`, `uv`, `poetry`, `pipenv`. |
+| `--existing-install-python` | unset | Point to an existing Python install to reuse pip cache artifacts during dependency cache sync. |
 
-## Recommended feedback loop for monolith split confidence
+Environment variables are also supported. CLI flags override env vars.
 
-1. Build the target in test mode with verification enabled:
-   `PYTHONPATH=src python -m monopack <pack> --mode test --verify`.
-2. Inspect build output (`build/<pack>/`) and generated `requirements.txt` for expected scope.
-3. Build deploy artifact once confidence is good:
-   `PYTHONPATH=src python -m monopack <pack> --mode deploy`.
-4. Optionally gate deploy build with tests:
-   `PYTHONPATH=src python -m monopack <pack> --mode deploy --with-tests`.
-5. Run repository tests to catch broader regressions:
-   `python -m unittest discover -s tests -v`.
-6. Tighten imports/tests/inline config and repeat until scoped build behavior is stable.
+## How it works
 
-## Deeper docs
+1. Resolve target packs from `packs/` or explicit `pack_name`.
+2. Build an import graph from each pack entrypoint.
+3. Copy reachable first-party files into `build/<pack_name>/`.
+4. Resolve third-party import roots to distributions from pinned dependency sync.
+5. Install only that per-pack dependency subset into the build target.
+6. Run verifier and optional pack-scoped tests.
+7. In deploy mode, write zip artifact and optional digest files.
+
+## More docs
 
 - CLI reference: `docs/cli.md`
-- PyPI publishing: `docs/publishing.md`
-- Fixture-driven confidence loop and matrix: `docs/testing-fixtures.md`
-
-For Terraform `source_code_hash` usage with generated package digests, see `docs/cli.md`.
+- Fixture-driven testing notes: `docs/testing-fixtures.md`
+- Publishing: `docs/publishing.md`
